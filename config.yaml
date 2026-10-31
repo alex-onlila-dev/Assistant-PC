@@ -1,0 +1,67 @@
+# ============================================================
+#  Configuration de Jarvis
+# ============================================================
+
+assistant:
+  name: "Jarvis"
+  language: "fr"
+  max_steps: 15            # nombre max d'étapes de raisonnement par demande
+  max_tool_output: 12000   # caractères max renvoyés au modèle par outil
+  max_history_chars: 16000 # au-delà, les plus anciens échanges sont oubliés (reste sous num_ctx)
+
+# --- Cerveau : modèle local via Ollama (aucune API externe) ---
+llm:
+  host: "http://localhost:11434"
+  model: "qwen2.5:7b"          # modèle texte qui gère les outils (tool calling)
+  vision_model: "qwen2.5vl:7b" # modèle qui « voit » les images et images de vidéo
+  timeout: 300
+  keep_alive: "30m"            # le modèle reste en mémoire 30 min après usage : réponses sans temps de chargement
+  options:
+    temperature: 0.3
+    num_ctx: 8192            # mémoire de travail du cerveau ; 16384 coûte ~1 Go de RAM en plus
+
+# --- Activation (mode vocal) ---
+activation:
+  modes: ["voix", "clap"]   # "voix" = appel par le nom, "clap" = claquement de mains (les deux en même temps)
+  claps: 2                  # nombre de claquements rapprochés pour réveiller Jarvis (1 = plus de faux départs)
+  clap_sensitivity: 0.5     # 0 = peu sensible (pièce bruyante) … 1 = très sensible (pièce calme)
+  preroll_seconds: 1.5      # audio gardé en mémoire pour capter « Jarvis, ouvre… » d'une traite
+
+# --- Voix ---
+voice:
+  wake_word: "hey_jarvis"       # modèle intégré, ou chemin d'un modèle perso ex: "models/jarvis.onnx"
+  wake_threshold: 0.5
+  whisper_model: "small"        # tiny | base | small | medium | large-v3
+  whisper_device: "auto"        # auto | cpu | cuda
+  piper_model: "models/fr_FR-siwis-medium.onnx"  # chemin vers un .onnx Piper (ex: fr_FR-siwis-medium.onnx). Vide = pyttsx3
+  system_voice: ""              # voix système si pas de Piper, ex: "Thomas", "Jacques". Vide = voix française auto
+  silence_seconds: 0.9          # silence qui marque la fin de ta phrase (plus bas = plus réactif)
+  followup_seconds: 8           # après une réponse, Jarvis attend ta suite ; au-delà il raccroche
+  max_record_seconds: 20
+
+# --- Sécurité ---
+security:
+  # Toute action qui modifie quelque chose demande confirmation (codé en dur, non désactivable).
+  # Ces dossiers sont en plus interdits en écriture/suppression, même avec confirmation.
+  protected_paths:
+    - "C:/Windows"
+    - "C:/Program Files"
+    - "C:/Program Files (x86)"
+    - "/System"
+    - "/usr"
+    - "/bin"
+    - "/sbin"
+    - "/etc"
+    - "/boot"
+
+# --- Analyse de fichiers ---
+analysis:
+  max_chars: 20000        # texte max extrait d'un fichier
+  video_frames: 6         # nombre d'images clés extraites d'une vidéo
+  image_max_side: 1024    # redimensionnement avant envoi au modèle vision
+
+# --- Recherche de fichiers ---
+search:
+  max_results: 50
+  timeout_seconds: 20
+  skip_dirs: [".git", "node_modules", "__pycache__", ".venv", "venv", "AppData", "Library", ".cache", "$Recycle.Bin"]
