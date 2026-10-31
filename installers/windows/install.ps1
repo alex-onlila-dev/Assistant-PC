@@ -72,6 +72,10 @@ Ok "code copié dans $AppDir"
 $Py = "$AppDir\.venv\Scripts\python.exe"
 $PyW = "$AppDir\.venv\Scripts\pythonw.exe"
 # Python 3.11, comme sur macOS et Linux (openwakeword n'a pas toutes ses dépendances en 3.12)
+# Un environnement d'une autre version (ancienne installation) est recréé, pas mélangé
+if ((Test-Path "$AppDir\.venv\pyvenv.cfg") -and -not (Select-String -Path "$AppDir\.venv\pyvenv.cfg" -Pattern '^version_info = 3\.11' -Quiet)) {
+    Remove-Item "$AppDir\.venv" -Recurse -Force
+}
 uv venv --quiet --allow-existing --python 3.11 "$AppDir\.venv"
 if ($LASTEXITCODE) { throw "Création de l'environnement Python impossible." }
 Write-Host "  Installation des modules Python (quelques minutes la première fois)…"

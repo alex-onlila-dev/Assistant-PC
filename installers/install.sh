@@ -134,6 +134,10 @@ fi
 ok "code copié dans $APP_DIR"
 
 # Python 3.11 : openwakeword a besoin de tflite-runtime sous Linux, qui n'existe pas en 3.12
+# Un environnement d'une autre version (ancienne installation) est recréé, pas mélangé
+if [ -f "$APP_DIR/.venv/pyvenv.cfg" ] && ! grep -q '^version_info = 3\.11' "$APP_DIR/.venv/pyvenv.cfg"; then
+  rm -rf "$APP_DIR/.venv"
+fi
 uv venv --quiet --allow-existing --python 3.11 "$APP_DIR/.venv"
 echo "  Installation des modules Python (quelques minutes la première fois)…"
 uv pip install --quiet --python "$APP_DIR/.venv/bin/python" -r "$APP_DIR/requirements.txt"
@@ -160,16 +164,17 @@ if [ "$SKIP_MODELS" = 0 ]; then
   fi
   ok "voix française (Piper)"
   echo "  Préchargement de la reconnaissance vocale et du mot d'activation…"
-  if (cd "$APP_DIR" && "$PY" - <<'EOF' 2>/dev/null)
-from jarvis.config import load_config
+  # Pas de heredoc dans un « ( … ) » : le bash 3.2 de macOS relit ensuite ces lignes comme du shell
+  PRELOAD='from jarvis.config import load_config
 cfg = load_config()
 from jarvis.voice.stt import get_transcriber
 get_transcriber(cfg)
 import openwakeword
-openwakeword.utils.download_models(model_names=[cfg["voice"]["wake_word"]])
-EOF
-  then ok "Whisper et « Hey Jarvis » prêts"
-  else warn "préchargement impossible (pas de réseau ?) : ils se téléchargeront au premier lancement"
+openwakeword.utils.download_models(model_names=[cfg["voice"]["wake_word"]])'
+  if (cd "$APP_DIR" && "$PY" -c "$PRELOAD") 2>/dev/null; then
+    ok "Whisper et « Hey Jarvis » prêts"
+  else
+    warn "préchargement impossible (pas de réseau ?) : ils se téléchargeront au premier lancement"
   fi
 fi
 
