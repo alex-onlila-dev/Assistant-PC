@@ -74,7 +74,7 @@ jarvis-assistant/
 
 | Brique | Choix |
 |---|---|
-| Langage | Python 3.11+ |
+| Langage | Python 3.11 (3.12 possible sur macOS et Windows) |
 | Cerveau | Modèle local via Ollama (`qwen2.5:7b`), vision : `qwen2.5vl:7b` |
 | Écoute | faster-whisper |
 | Mot d'activation | openWakeWord (« Hey Jarvis ») |
@@ -96,7 +96,7 @@ jarvis-assistant/
 | **Linux** | Dans le dossier du projet : `./installers/install.sh` (demande ton mot de passe pour portaudio, ffmpeg…) |
 
 L'installateur fait tout :
-- il installe Python 3.12 (via `uv`, sans toucher au Python du système), les modules, puis Ollama ;
+- il installe Python 3.11 (via `uv`, sans toucher au Python du système), les modules, puis Ollama ;
 - il choisit le cerveau selon ta mémoire vive (`qwen2.5:3b` sous 12 Go, sinon `qwen2.5:7b`) ;
 - il précharge Whisper, la voix française et « Hey Jarvis » ;
 - il crée l'application (`Jarvis.app` sur Mac, menu Démarrer sur Windows, menu des applications sur Linux),

@@ -109,7 +109,7 @@ def test_confirmation_shows_real_path_and_content(tmp_path, config, monkeypatch)
     agent, conf = make_agent(FakeLLM([call("create_file", path="notes.txt", content="ligne secrète"),
                                       reply("Annulé.")]), False, config)
     agent.run("crée notes.txt")
-    assert str(tmp_path / "notes.txt") in conf.asked[0]
+    assert str((tmp_path / "notes.txt").resolve()) in conf.asked[0]
     assert "ligne secrète" in conf.asked[0]
 
 

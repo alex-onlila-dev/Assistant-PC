@@ -133,7 +133,8 @@ if [ "$(cd "$APP_DIR" && pwd)" != "$SRC" ]; then
 fi
 ok "code copié dans $APP_DIR"
 
-uv venv --quiet --allow-existing --python 3.12 "$APP_DIR/.venv"
+# Python 3.11 : openwakeword a besoin de tflite-runtime sous Linux, qui n'existe pas en 3.12
+uv venv --quiet --allow-existing --python 3.11 "$APP_DIR/.venv"
 echo "  Installation des modules Python (quelques minutes la première fois)…"
 uv pip install --quiet --python "$APP_DIR/.venv/bin/python" -r "$APP_DIR/requirements.txt"
 PY="$APP_DIR/.venv/bin/python"

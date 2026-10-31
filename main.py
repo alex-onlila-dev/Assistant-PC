@@ -23,8 +23,16 @@ def _log_to_file_without_console() -> None:
     sys.stdout = sys.stderr = log
 
 
+def _safe_console() -> None:
+    """Console Windows (cp1252) ou sortie redirigée : un emoji ne doit jamais faire planter Jarvis."""
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None and hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def main() -> int:
     _log_to_file_without_console()
+    _safe_console()
     parser = argparse.ArgumentParser(description="Jarvis — assistant personnel local")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--cli", action="store_true", help="mode texte")
