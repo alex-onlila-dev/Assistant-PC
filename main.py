@@ -8,15 +8,29 @@
 import argparse
 import sys
 
-from jarvis.config import load_config
+from jarvis.config import DATA_DIR, load_config
+
+
+def _log_to_file_without_console() -> None:
+    """Lancé sans terminal (pythonw, Jarvis.app, ouverture de session) : tout part dans ~/.jarvis/jarvis.log.
+
+    Sous Windows, pythonw n'a aucune sortie : la moindre barre de progression ferait planter Jarvis.
+    """
+    if sys.stdout is not None and "--background" not in sys.argv:
+        return
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    log = open(DATA_DIR / "jarvis.log", "a", encoding="utf-8", buffering=1)
+    sys.stdout = sys.stderr = log
 
 
 def main() -> int:
+    _log_to_file_without_console()
     parser = argparse.ArgumentParser(description="Jarvis — assistant personnel local")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--cli", action="store_true", help="mode texte")
     group.add_argument("--voice", action="store_true", help="mode vocal")
     parser.add_argument("--console", action="store_true", help="avec --voice : pas de bulle, tout dans le terminal")
+    parser.add_argument("--background", action="store_true", help="lancé sans terminal : messages dans ~/.jarvis/jarvis.log")
     parser.add_argument("--config", help="chemin vers un config.yaml")
     args = parser.parse_args()
 

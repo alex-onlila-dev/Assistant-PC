@@ -87,7 +87,43 @@ jarvis-assistant/
 
 ## 3. Installation
 
-### a. Ollama (le cerveau)
+### Installation en un clic (recommandée)
+
+| Système | Comment |
+|---|---|
+| **Windows 10/11** | Télécharge `JarvisSetup-x.y.z.exe` dans les *Releases* du dépôt et lance-le. |
+| **macOS** | Dans le dossier du projet : `./installers/install.sh` |
+| **Linux** | Dans le dossier du projet : `./installers/install.sh` (demande ton mot de passe pour portaudio, ffmpeg…) |
+
+L'installateur fait tout :
+- il installe Python 3.12 (via `uv`, sans toucher au Python du système), les modules, puis Ollama ;
+- il choisit le cerveau selon ta mémoire vive (`qwen2.5:3b` sous 12 Go, sinon `qwen2.5:7b`) ;
+- il précharge Whisper, la voix française et « Hey Jarvis » ;
+- il crée l'application (`Jarvis.app` sur Mac, menu Démarrer sur Windows, menu des applications sur Linux),
+  la commande `jarvis` et le lancement automatique à l'ouverture de session.
+
+**Pas de droits administrateur.** Jarvis s'installe pour ton compte et accède à tout ce que tu peux ouvrir toi-même.
+L'installer « à la racine » ne lui donnerait rien de plus d'utile, mais lui permettrait de modifier le système :
+une erreur du modèle pourrait alors casser la machine. Ce qui débloque vraiment l'accès, ce sont les autorisations :
+- **macOS** : *Réglages Système > Confidentialité et sécurité > Accès complet au disque > Jarvis* (Documents, Bureau, iCloud…),
+  et le micro (demandé au premier lancement) ;
+- **Windows** : *Paramètres > Confidentialité > Microphone > Autoriser les applications de bureau*.
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Programme | `~/Library/Application Support/Jarvis/app` | `~/.local/share/jarvis/app` | `%LOCALAPPDATA%\Jarvis\app` |
+| Configuration, historique, journal | `~/.jarvis/` | `~/.jarvis/` | `%USERPROFILE%\.jarvis\` |
+
+Relancer l'installateur met Jarvis à jour en gardant ta configuration (`~/.jarvis/config.yaml`).
+Options : `--no-autostart`, `--model qwen2.5:7b`, `--with-vision`, `--yes` (Windows : `-NoAutostart`, `-Model`, `-WithVision`, `-Yes`).
+Désinstaller : `installers/uninstall.sh` (Windows : *Paramètres > Applications > Jarvis*).
+
+**Publier une version Windows** : `git tag v1.0.0 && git push --tags`. GitHub Actions teste l'installation sur Linux
+et Windows, construit `JarvisSetup-1.0.0.exe` et le joint à la Release.
+
+### Installation manuelle (développement)
+
+#### a. Ollama (le cerveau)
 Télécharge Ollama sur https://ollama.com puis :
 ```bash
 ollama pull qwen2.5:7b      # cerveau principal (gère les outils)
@@ -95,12 +131,12 @@ ollama pull qwen2.5vl:7b    # vision : images, PDF scannés, vidéos
 ```
 Machine modeste (8 Go de RAM) : prends `qwen2.5:3b` et `llava:7b`, et adapte `config.yaml`.
 
-### b. ffmpeg (pour l'analyse vidéo)
+#### b. ffmpeg (pour l'analyse vidéo)
 - Windows : `winget install ffmpeg`
 - macOS : `brew install ffmpeg`
 - Linux : `sudo apt install ffmpeg`
 
-### c. Dépendances Python
+#### c. Dépendances Python
 ```bash
 python -m venv .venv
 # Windows : .venv\Scripts\activate     macOS/Linux : source .venv/bin/activate
@@ -108,7 +144,7 @@ pip install -r requirements.txt
 ```
 Linux : installe aussi `sudo apt install libportaudio2 libnotify-bin espeak-ng`.
 
-### d. Voix française naturelle (optionnel)
+#### d. Voix française naturelle (optionnel)
 Télécharge une voix Piper française (ex. `fr_FR-siwis-medium.onnx` et son `.onnx.json`)
 depuis le dépôt de voix Piper, place-les dans `models/`, puis dans `config.yaml` :
 ```yaml

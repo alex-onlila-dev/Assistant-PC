@@ -297,7 +297,7 @@ def run_overlay(cfg: dict) -> int:
     bridge = Bridge()
     print("Chargement de la voix…")
     session = VoiceSession(cfg, QtSessionUI(bridge))
-    if not ctx.llm.ping():
+    if not ctx.llm.ensure_running():
         print("⚠️  Ollama ne répond pas. Lance « ollama serve » puis relance Jarvis.")
         return 1
 

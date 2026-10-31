@@ -1,0 +1,98 @@
+# Teste les installateurs et construit JarvisSetup.exe.
+#
+# - À chaque push touchant le code ou les installateurs : installation réelle sur Linux et Windows,
+#   puis tests dans la copie installée.
+# - Sur un tag « v1.2.3 » : construit JarvisSetup-1.2.3.exe et le publie dans une Release GitHub.
+# - « Run workflow » dans l'onglet Actions : construit l'installateur à la demande (fichier téléchargeable).
+#
+# macOS n'est pas dans la matrice : ses minutes comptent 10 fois plus sur un dépôt privé.
+# L'installateur macOS est testé à la main (installers/install.sh).
+name: Installateurs
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths: ["installers/**", "jarvis/**", "main.py", "requirements.txt", "config.yaml", ".github/workflows/installers.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # publier l'installateur dans la Release
+
+jobs:
+  test-install:
+    name: Installation (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer Jarvis (Linux)
+        if: runner.os == 'Linux'
+        run: bash installers/install.sh --yes --no-autostart --skip-ollama --skip-models
+
+      - name: Tester l'installation (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cd ~/.local/share/jarvis/app
+          .venv/bin/python -m pytest -q
+          printf '/quit\n' | ~/.local/bin/jarvis --cli || true
+          bash installers/uninstall.sh --yes
+          test ! -d ~/.local/share/jarvis/app
+
+      - name: Installer Jarvis (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\installers\windows\install.ps1 -Yes -NoAutostart -SkipOllama -SkipModels
+
+      - name: Tester l'installation (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $app = "$env:LOCALAPPDATA\Jarvis\app"
+          Set-Location $app
+          & "$app\.venv\Scripts\python.exe" -m pytest -q
+          if ($LASTEXITCODE) { exit 1 }
+          if (-not (Test-Path "$([Environment]::GetFolderPath('Programs'))\Jarvis.lnk")) { throw "raccourci absent" }
+          Set-Location $env:USERPROFILE
+          & "$env:GITHUB_WORKSPACE\installers\windows\uninstall.ps1" -Quiet
+          if (Test-Path $app) { throw "désinstallation incomplète" }
+
+  build-windows:
+    name: JarvisSetup.exe
+    needs: test-install
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: v
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT";
+          else echo "version=0.0.0-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Installer Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Construire l'installateur
+        run: iscc /DAppVersion=${{ steps.v.outputs.version }} installers\windows\jarvis.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JarvisSetup-${{ steps.v.outputs.version }}
+          path: dist/JarvisSetup-*.exe
+
+      - name: Publier dans la Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --title "Jarvis $GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/JarvisSetup-*.exe --clobber

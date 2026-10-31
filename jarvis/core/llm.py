@@ -25,6 +25,27 @@ class OllamaClient:
         except httpx.HTTPError:
             return False
 
+    def ensure_running(self, wait_seconds: float = 15) -> bool:
+        """Démarre Ollama s'il est installé mais arrêté (ex. Jarvis lancé à l'ouverture de session)."""
+        if self.ping():
+            return True
+        import shutil
+        import subprocess
+        import sys
+        import time
+
+        exe = shutil.which("ollama")
+        if not exe or ("localhost" not in self.host and "127.0.0.1" not in self.host):
+            return False
+        flags = {"creationflags": 0x08000000} if sys.platform.startswith("win") else {"start_new_session": True}
+        subprocess.Popen([exe, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **flags)
+        deadline = time.monotonic() + wait_seconds
+        while time.monotonic() < deadline:
+            time.sleep(0.5)
+            if self.ping():
+                return True
+        return False
+
     def installed_models(self) -> list[str]:
         r = httpx.get(f"{self.host}/api/tags", timeout=10)
         r.raise_for_status()

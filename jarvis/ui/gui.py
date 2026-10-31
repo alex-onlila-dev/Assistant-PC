@@ -83,7 +83,7 @@ class MainWindow(QWidget):
         bridge.confirm_requested.connect(self.on_confirm)
         bridge.event.connect(self.on_event)
 
-        if not ctx.llm.ping():
+        if not ctx.llm.ensure_running():
             self.append("Système", "Ollama ne répond pas. Lance « ollama serve » puis redémarre Jarvis.", "#c0392b")
 
     def append(self, who: str, text: str, color: str = "#222") -> None:
