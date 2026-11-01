@@ -6,6 +6,7 @@
 - Pièces jointes : bouton ＋, glisser-déposer n'importe où, ou Ctrl+V d'une image (capture d'écran).
   Rien n'est copié : Jarvis reçoit le chemin du fichier et le lit lui-même avec ses outils d'analyse.
 - Raccourcis : Ctrl+N nouvelle conversation, Échap arrête la réponse
+- Une seule fenêtre : relancer Jarvis (menu des applications, commande) ramène celle déjà ouverte
 """
 import sys
 import threading
@@ -14,6 +15,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QPalette, QShortcut
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QListWidget,
                                QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
                                QScrollArea, QSizePolicy, QStackedWidget, QStyle, QSystemTrayIcon, QVBoxLayout,
@@ -26,6 +28,7 @@ from jarvis.core.confirmation import Confirmer
 from jarvis.core.context import ctx
 from jarvis.core.tools import TOOL_LABELS
 
+SERVER_NAME = "jarvis-fenetre"   # canal local par lequel un 2e lancement demande d'afficher la fenêtre
 COLUMN_WIDTH = 760   # largeur max du fil de discussion, centré comme sur les assistants en ligne
 
 LIGHT = {
@@ -771,9 +774,7 @@ class ChatWindow(QMainWindow):
             self.current.add_step(f"⚠ {data['result'].get('message', 'Erreur')}"[:160], error=True)
 
     def on_confirm(self, action: str) -> None:
-        self.show()
-        self.raise_()
-        self.activateWindow()
+        self.reveal()
 
         def answered(ok: bool) -> None:
             self.pending = None
@@ -917,13 +918,58 @@ class ChatWindow(QMainWindow):
     def _update_send(self) -> None:
         self.send_btn.setEnabled(self.busy or bool(self.composer.toPlainText().strip() or self.attachments))
 
-    def closeEvent(self, event):   # fermer = réduire dans la barre système
-        event.ignore()
-        self.hide()
+    def reveal(self) -> None:
+        """Ramène la fenêtre, même cachée, réduite ou derrière d'autres fenêtres.
+
+        Sous Wayland, une application ne peut pas se mettre d'elle-même au premier plan : on la ré-affiche,
+        ce qui la fait réapparaître par-dessus.
+        """
+        if self.isVisible() and not self.isActiveWindow():
+            self.hide()
+        self.setWindowState(self.windowState() & ~Qt.WindowMinimized)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def closeEvent(self, event):   # fermer = cacher dans la barre système (ou quitter s'il n'y en a pas)
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            event.ignore()
+            self.hide()
+        else:
+            QApplication.quit()
+
+
+def _show_running_instance() -> bool:
+    """Si Jarvis est déjà ouvert, lui demande d'afficher sa fenêtre et renvoie True."""
+    sock = QLocalSocket()
+    sock.connectToServer(SERVER_NAME)
+    if not sock.waitForConnected(500):
+        return False
+    sock.write(b"show")
+    sock.waitForBytesWritten(500)
+    sock.disconnectFromServer()
+    return True
+
+
+def _listen_for_instances(app: QApplication, window: ChatWindow) -> QLocalServer:
+    server = QLocalServer(app)
+    QLocalServer.removeServer(SERVER_NAME)   # reste d'un Jarvis qui aurait planté
+    server.listen(SERVER_NAME)
+
+    def on_connection():
+        conn = server.nextPendingConnection()
+        conn.disconnected.connect(conn.deleteLater)
+        window.reveal()
+
+    server.newConnection.connect(on_connection)
+    return server
 
 
 def run_gui(cfg: dict) -> int:
     app = QApplication(sys.argv)
+    if _show_running_instance():
+        print("Jarvis est déjà ouvert : sa fenêtre est ramenée au premier plan.")
+        return 0
     app.setQuitOnLastWindowClosed(False)
     app.setStyle("Fusion")
     apply_theme = lambda *_: app.setStyleSheet(stylesheet(DARK if is_dark(app) else LIGHT))  # noqa: E731
@@ -937,16 +983,17 @@ def run_gui(cfg: dict) -> int:
     agent.on_event = lambda kind, data: bridge.event.emit(kind, data)
 
     window = ChatWindow(agent, confirmer, bridge)
+    server = _listen_for_instances(app, window)  # noqa: F841  (doit vivre aussi longtemps que l'application)
 
     tray = QSystemTrayIcon(app.style().standardIcon(QStyle.SP_ComputerIcon), app)
     tray.setToolTip("Jarvis")
     menu = QMenu()
-    menu.addAction("Ouvrir Jarvis", window.show)
-    menu.addAction("Nouvelle conversation", lambda: (window.show(), window.new_chat()))
+    menu.addAction("Ouvrir Jarvis", window.reveal)
+    menu.addAction("Nouvelle conversation", lambda: (window.reveal(), window.new_chat()))
     menu.addSeparator()
     menu.addAction("Quitter", app.quit)
     tray.setContextMenu(menu)
-    tray.activated.connect(lambda reason: window.show() if reason == QSystemTrayIcon.Trigger else None)
+    tray.activated.connect(lambda reason: window.reveal() if reason == QSystemTrayIcon.Trigger else None)
     tray.show()
 
     window.show()

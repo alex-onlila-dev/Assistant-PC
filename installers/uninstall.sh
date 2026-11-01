@@ -29,6 +29,7 @@ if [ "$OS" = "Darwin" ]; then
   rmdir "$(dirname "$APP_DIR")" 2>/dev/null || true
 else
   rm -f "${XDG_DATA_HOME:-$HOME/.local/share}/applications/jarvis.desktop" \
+        "${XDG_DATA_HOME:-$HOME/.local/share}/applications/jarvis-discussion.desktop" \
         "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/jarvis.desktop"
   rmdir "$(dirname "$APP_DIR")" 2>/dev/null || true
 fi

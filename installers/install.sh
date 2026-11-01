@@ -266,14 +266,25 @@ else
   cat > "$DESKTOP" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Jarvis
-Comment=Assistant personnel local
+Name=Jarvis (voix)
+Comment=Assistant personnel local : « Hey Jarvis » ou deux claquements de mains
 Exec="$BIN_DIR/jarvis" --voice --background
 Icon=audio-input-microphone
 Terminal=false
 Categories=Utility;
 EOF
-  ok "entrée dans le menu des applications"
+  # La fenêtre de discussion (texte) : sans --voice, main.py ouvre la fenêtre
+  cat > "$(dirname "$DESKTOP")/jarvis-discussion.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Jarvis (discussion)
+Comment=Discuter avec Jarvis par écrit
+Exec="$BIN_DIR/jarvis" --background
+Icon=internet-chat
+Terminal=false
+Categories=Utility;
+EOF
+  ok "entrées dans le menu des applications : Jarvis (voix) et Jarvis (discussion)"
   AUTO="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/jarvis.desktop"
   if [ "$AUTOSTART" = 1 ]; then
     mkdir -p "$(dirname "$AUTO")" && cp "$DESKTOP" "$AUTO"
