@@ -14,6 +14,7 @@ import threading
 from jarvis.bootstrap import create_agent
 from jarvis.core.confirmation import Confirmer, parse_yes_no
 from jarvis.core.context import ctx
+from jarvis.core.tools import TOOL_LABELS
 from jarvis.voice.activation import ActivationListener, strip_wake_word
 from jarvis.voice.audio_io import beep, record_until_silence
 from jarvis.voice.stt import get_transcriber
@@ -34,15 +35,6 @@ _FILLERS = {"merci", "beaucoup", "jarvis", "ok", "okay", "d'accord", "non", "oui
             "euh", "alors", "bien", "parfait", "c'est", "super", "génial", "top", "pour", "l'instant", "le", "moment"}
 
 GOODBYES = ["D'accord, à plus tard.", "Très bien. Je reste disponible.", "Ça marche, à tout à l'heure."]
-
-TOOL_LABELS = {
-    "read_file": "Je lis le fichier…", "list_directory": "Je regarde le dossier…",
-    "search_files": "Je cherche tes fichiers…", "file_info": "Je regarde le fichier…",
-    "analyze_file": "J'analyse le fichier…", "review_project": "J'étudie le projet…",
-    "system_info": "Je vérifie l'ordinateur…", "list_applications": "Je regarde tes applications…",
-    "set_alarm": "Je règle l'alarme…", "set_timer": "Je lance le minuteur…",
-}
-
 
 def _normalize(text: str) -> str:
     t = re.sub(r"[^\w\s'-]", " ", (text or "").lower().replace("’", "'"))

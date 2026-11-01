@@ -66,7 +66,7 @@ jarvis-assistant/
 │   │   └── loop.py          mode vocal + confirmation à la voix
 │   └── ui/
 │       ├── cli.py           mode terminal
-│       └── gui.py           fenêtre + icône barre système (PySide6)
+│       └── gui.py           fenêtre de discussion façon ChatGPT/Claude + icône barre système (PySide6)
 └── tests/                   tests de la règle de confirmation, des analyseurs, etc.
 ```
 

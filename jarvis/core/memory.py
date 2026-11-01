@@ -1,4 +1,5 @@
-"""Mémoire locale (SQLite) : historique des échanges et alarmes."""
+"""Mémoire locale (SQLite) : historique des échanges, conversations de la fenêtre et alarmes."""
+import json
 import sqlite3
 import threading
 from datetime import datetime
@@ -18,6 +19,9 @@ class Memory:
             CREATE TABLE IF NOT EXISTS alarms (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 at TEXT NOT NULL, label TEXT NOT NULL, done INTEGER DEFAULT 0);
+            CREATE TABLE IF NOT EXISTS chats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL, updated TEXT NOT NULL, history TEXT NOT NULL);
         """)
         self._conn.commit()
 
@@ -35,6 +39,30 @@ class Memory:
     def recent_messages(self, limit: int = 20) -> list[dict]:
         rows = self._exec("SELECT ts, role, content FROM messages ORDER BY id DESC LIMIT ?", (limit,))
         return [dict(r) for r in rows.fetchall()][::-1]
+
+    # --- conversations (fenêtre de discussion) ---
+    def save_chat(self, chat_id: int | None, title: str, history: list[dict]) -> int:
+        """Enregistre l'historique complet (appels d'outils compris) pour pouvoir reprendre la conversation."""
+        now = datetime.now().isoformat(timespec="seconds")
+        data = json.dumps(history, ensure_ascii=False, default=str)
+        if chat_id is None:
+            return self._exec("INSERT INTO chats (title, updated, history) VALUES (?, ?, ?)",
+                              (title, now, data)).lastrowid
+        self._exec("UPDATE chats SET title = ?, updated = ?, history = ? WHERE id = ?", (title, now, data, chat_id))
+        return chat_id
+
+    def list_chats(self, limit: int = 100) -> list[dict]:
+        rows = self._exec("SELECT id, title, updated FROM chats ORDER BY updated DESC, id DESC LIMIT ?", (limit,))
+        return [dict(r) for r in rows.fetchall()]
+
+    def load_chat(self, chat_id: int) -> tuple[str, list[dict]]:
+        row = self._exec("SELECT title, history FROM chats WHERE id = ?", (chat_id,)).fetchone()
+        if row is None:
+            raise KeyError(chat_id)
+        return row["title"], json.loads(row["history"])
+
+    def delete_chat(self, chat_id: int) -> None:
+        self._exec("DELETE FROM chats WHERE id = ?", (chat_id,))
 
     # --- alarmes ---
     def add_alarm(self, at: datetime, label: str) -> int:

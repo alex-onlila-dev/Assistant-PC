@@ -6,7 +6,7 @@ assistant:
   name: "Jarvis"
   language: "fr"
   max_steps: 15            # nombre max d'étapes de raisonnement par demande
-  max_tool_output: 12000   # caractères max renvoyés au modèle par outil
+  max_tool_output: 6000    # caractères max renvoyés au modèle par outil (plus = plus lent à lire)
   max_history_chars: 16000 # au-delà, les plus anciens échanges sont oubliés (reste sous num_ctx)
 
 # --- Cerveau : modèle local via Ollama (aucune API externe) ---

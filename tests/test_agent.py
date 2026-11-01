@@ -142,3 +142,48 @@ def test_voice_mode_asks_for_short_answers(config):
     from jarvis.core.agent import Agent
     agent = Agent(llm=None, registry=registry, confirmer=AutoConfirmer(True), cfg=config, voice=True)
     assert "Mode vocal" in agent.history[0]["content"]
+
+
+def test_stop_keeps_partial_answer_in_history(config):
+    class StreamLLM:
+        def chat(self, messages, tools=None, model=None, on_delta=None):
+            on_delta("Voici ")
+            agent.cancel()            # l'utilisateur clique sur « Arrêter » pendant la réponse
+            on_delta("la suite")
+            return reply("Voici la suite")
+
+    agent, _ = make_agent(StreamLLM(), True, config)
+    assert agent.run("raconte", on_delta=lambda p: None) == "Voici "
+    assert agent.history[-1] == {"role": "assistant", "content": "Voici [interrompu]"}
+
+
+def test_load_restores_conversation_with_fresh_system_prompt(config):
+    agent, _ = make_agent(FakeLLM([]), True, config)
+    agent.load([{"role": "system", "content": "vieux"}, {"role": "user", "content": "a"},
+                {"role": "assistant", "content": "b"}])
+    assert agent.history[0]["role"] == "system" and agent.history[0]["content"] != "vieux"
+    assert [m["content"] for m in agent.history[1:]] == ["a", "b"]
+
+
+def test_tool_call_written_as_text_is_retried(config):
+    llm = FakeLLM([reply("Voici comment procéder :\n\n```json\n"),       # appel avalé par Ollama
+                   call("get_datetime"), reply("Il est midi.")])
+    agent, _ = make_agent(llm, True, config)
+    events = []
+    agent.on_event = lambda kind, data: events.append(kind)
+    assert agent.run("quelle heure ?") == "Il est midi."
+    assert events[0] == "retry" and "tool_start" in events
+
+
+def test_retry_happens_only_once(config):
+    llm = FakeLLM([reply("Lance search_files toi-même."), reply("Utilise search_files.")])
+    agent, _ = make_agent(llm, True, config)
+    assert agent.run("cherche") == "Utilise search_files."
+
+
+def test_search_finds_git_folders_without_entering_them(config, tmp_path):
+    for name in ("projet-a", "projet-b"):
+        (tmp_path / name / ".git" / "objects").mkdir(parents=True)
+        (tmp_path / name / ".gitignore").write_text("")
+    found = files_mod.search_files(".git", root=str(tmp_path), exact=True)["resultats"]
+    assert sorted(found) == [str(tmp_path / "projet-a" / ".git"), str(tmp_path / "projet-b" / ".git")]

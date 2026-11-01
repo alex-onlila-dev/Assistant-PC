@@ -76,3 +76,19 @@ class ToolRegistry:
 
 
 registry = ToolRegistry()
+
+# Ce que Jarvis annonce pendant qu'un outil travaille (bulle vocale, fenêtre de discussion)
+TOOL_LABELS = {
+    "read_file": "Je lis le fichier…", "list_directory": "Je regarde le dossier…",
+    "search_files": "Je cherche tes fichiers…", "file_info": "Je regarde le fichier…",
+    "analyze_file": "J'analyse le fichier…", "review_project": "J'étudie le projet…",
+    "system_info": "Je vérifie l'ordinateur…", "list_applications": "Je regarde tes applications…",
+    "set_alarm": "Je règle l'alarme…", "set_timer": "Je lance le minuteur…",
+    "list_alarms": "Je regarde les alarmes…", "cancel_alarm": "J'annule l'alarme…",
+    "create_file": "Je crée le fichier…", "modify_file": "Je modifie le fichier…",
+    "create_directory": "Je crée le dossier…", "move_file": "Je déplace…", "copy_file": "Je copie…",
+    "delete_file": "Je mets à la corbeille…", "open_file": "J'ouvre le fichier…",
+    "reveal_in_explorer": "J'ouvre l'explorateur…", "open_application": "Je lance l'application…",
+    "open_settings": "J'ouvre les paramètres…", "open_url": "J'ouvre le site…",
+    "get_datetime": "Je regarde l'heure…",
+}

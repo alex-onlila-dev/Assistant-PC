@@ -73,12 +73,14 @@ def list_directory(path: str = "~", show_hidden: bool = False) -> dict:
 
 @registry.register(
     "search_files",
-    "Cherche des fichiers ou dossiers par nom (sous-chaîne ou motif comme *.pdf).",
+    "Cherche des fichiers ou dossiers par nom (sous-chaîne ou motif comme *.pdf). "
+    "Pour compter les projets git : query='.git' et exact=true (un dossier .git par projet).",
     {"query": param("string", "Nom ou motif à chercher, ex: 'rapport' ou '*.mp4'"),
+     "exact": param("boolean", "Nom exact uniquement (sinon : le nom contient la recherche)"),
      "root": param("string", "Dossier de départ (défaut : dossier personnel)"),
      "extensions": param("array", "Extensions à garder, ex: ['.pdf', '.docx']", items={"type": "string"})},
     ["query"])
-def search_files(query: str, root: str = "~", extensions: list[str] | None = None) -> dict:
+def search_files(query: str, root: str = "~", extensions: list[str] | None = None, exact: bool = False) -> dict:
     s = ctx.cfg.get("search", {})
     skip = set(s.get("skip_dirs", []))
     max_results = s.get("max_results", 50)
@@ -89,18 +91,20 @@ def search_files(query: str, root: str = "~", extensions: list[str] | None = Non
     results, timed_out = [], False
 
     for dirpath, dirnames, filenames in os.walk(resolve(root)):
-        dirnames[:] = [d for d in dirnames if d not in skip and not d.startswith(".")]
         if time.monotonic() > deadline:
             timed_out = True
             break
+        # Les dossiers cachés ou ignorés peuvent être trouvés (ex. « .git » pour compter les projets),
+        # mais on n'y descend pas.
         for name in dirnames + filenames:
             low = name.lower()
-            ok = fnmatch.fnmatch(low, q) if is_glob else q in low
+            ok = fnmatch.fnmatch(low, q) if is_glob else (low == q if exact else q in low)
             if ok and (not exts or Path(low).suffix in exts):
                 results.append(str(Path(dirpath) / name))
                 if len(results) >= max_results:
-                    return {"resultats": results, "limite_atteinte": True}
-    return {"resultats": results, "temps_depasse": timed_out}
+                    return {"resultats": results, "nombre": len(results), "limite_atteinte": True}
+        dirnames[:] = [d for d in dirnames if d not in skip and not d.startswith(".")]
+    return {"resultats": results, "nombre": len(results), "temps_depasse": timed_out}
 
 
 @registry.register(

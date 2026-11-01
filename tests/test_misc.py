@@ -47,3 +47,17 @@ def test_detect_and_analyze(tmp_path):
     mystery = tmp_path / "sans_extension"
     mystery.write_bytes(b"\x00\x01\x02binaire")
     assert detect_kind(mystery) == "binaire"
+
+
+def test_chats_are_saved_and_reloaded(tmp_path):
+    from jarvis.core.memory import Memory
+    mem = Memory(str(tmp_path))
+    history = [{"role": "user", "content": "salut"},
+               {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "get_datetime"}}]}]
+    chat_id = mem.save_chat(None, "Salut", history)
+    mem.save_chat(chat_id, "Salut !", history + [{"role": "assistant", "content": "Bonjour"}])
+    assert [c["title"] for c in mem.list_chats()] == ["Salut !"]
+    title, loaded = mem.load_chat(chat_id)
+    assert title == "Salut !" and loaded[-1]["content"] == "Bonjour"
+    mem.delete_chat(chat_id)
+    assert mem.list_chats() == []
