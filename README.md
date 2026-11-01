@@ -34,7 +34,8 @@ jarvis-assistant/
 ├── requirements.txt
 ├── jarvis/
 │   ├── bootstrap.py         assemble toutes les briques
-│   ├── config.py
+│   ├── config.py            chargement et enregistrement de la configuration
+│   ├── autostart.py         lancement automatique à l'ouverture de session
 │   ├── core/                le cerveau (identique sur tous les OS)
 │   │   ├── agent.py         boucle agent + blocage des actions non confirmées
 │   │   ├── llm.py           client Ollama (local)
@@ -66,7 +67,9 @@ jarvis-assistant/
 │   │   └── loop.py          mode vocal + confirmation à la voix
 │   └── ui/
 │       ├── cli.py           mode terminal
-│       └── gui.py           fenêtre de discussion façon ChatGPT/Claude + icône barre système (PySide6)
+│       ├── gui.py           fenêtre de discussion façon ChatGPT/Claude + icône barre système (PySide6)
+│       ├── settings.py      fenêtre Paramètres : tous les réglages, téléchargement de modèles
+│       └── widgets.py       composants partagés
 └── tests/                   tests de la règle de confirmation, des analyseurs, etc.
 ```
 
@@ -115,6 +118,7 @@ une erreur du modèle pourrait alors casser la machine. Ce qui débloque vraimen
 | Configuration, historique, journal | `~/.jarvis/` | `~/.jarvis/` | `%USERPROFILE%\.jarvis\` |
 
 Relancer l'installateur met Jarvis à jour en gardant ta configuration (`~/.jarvis/config.yaml`).
+Tous les réglages se changent aussi dans la fenêtre : **⚙ Paramètres** en bas de la barre latérale (ou Ctrl+,).
 Options : `--no-autostart`, `--model qwen2.5:7b`, `--with-vision`, `--yes` (Windows : `-NoAutostart`, `-Model`, `-WithVision`, `-Yes`).
 Désinstaller : `installers/uninstall.sh` (Windows : *Paramètres > Applications > Jarvis*).
 

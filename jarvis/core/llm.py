@@ -51,6 +51,25 @@ class OllamaClient:
         r.raise_for_status()
         return [m["name"] for m in r.json().get("models", [])]
 
+    def pull(self, name: str, on_progress: Callable[[str, float | None], None]) -> None:
+        """Télécharge un modèle (comme « ollama pull »). on_progress(étape, avancement 0..1 ou None)."""
+        try:
+            with httpx.stream("POST", f"{self.host}/api/pull", json={"model": name, "stream": True},
+                              timeout=httpx.Timeout(30, read=None)) as r:
+                if r.status_code >= 400:
+                    r.read()
+                    raise LLMError(f"Erreur Ollama : {r.text}")
+                for line in r.iter_lines():
+                    if not line.strip():
+                        continue
+                    chunk = json.loads(line)
+                    if "error" in chunk:
+                        raise LLMError(chunk["error"])
+                    total, done = chunk.get("total"), chunk.get("completed")
+                    on_progress(chunk.get("status", ""), done / total if total and done else None)
+        except httpx.HTTPError as e:
+            raise LLMError(f"Ollama ne répond pas : {e}") from e
+
     def warm_up(self) -> None:
         """Charge le modèle en mémoire tout de suite, pour que la première réponse soit rapide."""
         try:

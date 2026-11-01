@@ -5,7 +5,8 @@
 - Saisie : Entrée envoie, Maj+Entrée va à la ligne
 - Pièces jointes : bouton ＋, glisser-déposer n'importe où, ou Ctrl+V d'une image (capture d'écran).
   Rien n'est copié : Jarvis reçoit le chemin du fichier et le lit lui-même avec ses outils d'analyse.
-- Raccourcis : Ctrl+N nouvelle conversation, Échap arrête la réponse
+- Raccourcis : Ctrl+N nouvelle conversation, Échap arrête la réponse, Ctrl+, paramètres
+- Paramètres (⚙ en bas de la barre latérale) : tous les réglages de config.yaml, voir settings.py
 - Une seule fenêtre : relancer Jarvis (menu des applications, commande) ramène celle déjà ouverte
 """
 import sys
@@ -16,7 +17,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QPalette, QShortcut
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QListWidget,
+from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QListWidget,
                                QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
                                QScrollArea, QSizePolicy, QStackedWidget, QStyle, QSystemTrayIcon, QVBoxLayout,
                                QWidget)
@@ -24,12 +25,16 @@ from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QGridLayout, Q
 import jarvis.tools  # noqa: F401  (avant jarvis.analyzers : les deux s'importent l'un l'autre)
 from jarvis.analyzers import ARCHIVE_EXT, AUDIO_EXT, IMAGE_EXT, OFFICE_EXT, VIDEO_EXT
 from jarvis.bootstrap import create_agent
+from jarvis.config import save_config
 from jarvis.core.confirmation import Confirmer
 from jarvis.core.context import ctx
 from jarvis.core.tools import TOOL_LABELS
+from jarvis.ui.settings import SettingsDialog
+from jarvis.ui.widgets import WrapLabel
 
 SERVER_NAME = "jarvis-fenetre"   # canal local par lequel un 2e lancement demande d'afficher la fenêtre
-COLUMN_WIDTH = 760   # largeur max du fil de discussion, centré comme sur les assistants en ligne
+COLUMN_WIDTH = 760
+ICONS = (Path(__file__).resolve().parent / "icons").as_posix()   # largeur max du fil de discussion, centré comme sur les assistants en ligne
 
 LIGHT = {
     "bg": "#ffffff", "sidebar": "#f7f7f8", "text": "#1f1f1f", "muted": "#6e6e73", "border": "#e3e3e6",
@@ -146,6 +151,44 @@ def stylesheet(t: dict) -> str:
     #chipClose:hover {{ color: {t['text']}; }}
     #dropHint {{ color: {t['accent']}; font-size: 13px; }}
 
+    #sideButton {{ text-align: left; padding: 8px 12px; border: none; border-radius: 10px; background: transparent; }}
+    #sideButton:hover {{ background: {t['hover']}; }}
+
+    #settings, #settingsPage {{ background: {t['bg']}; }}
+    #nav {{ background: {t['sidebar']}; border: none; border-right: 1px solid {t['border']}; outline: none;
+            padding: 12px 8px; }}
+    #nav::item {{ padding: 9px 12px; border-radius: 8px; color: {t['text']}; }}
+    #nav::item:hover {{ background: {t['hover']}; }}
+    #nav::item:selected {{ background: {t['selected']}; font-weight: 600; }}
+    #settingsTitle {{ font-size: 22px; font-weight: 600; }}
+    #settingsIntro, #help {{ color: {t['muted']}; font-size: 12px; }}
+    #note {{ color: {t['warn_text']}; background: {t['warn_bg']}; border: 1px solid {t['warn_border']};
+             border-radius: 8px; padding: 8px 12px; font-size: 13px; }}
+    #warn {{ color: {t['error']}; font-size: 12px; }}
+    #ok {{ color: #2e9e5b; font-size: 13px; }}
+    #fieldLabel {{ font-weight: 600; padding-top: 6px; }}
+    QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, #listEdit {{
+        background: {t['composer']}; border: 1px solid {t['border']}; border-radius: 8px; padding: 6px 8px;
+        selection-background-color: {t['accent']}; selection-color: #ffffff; }}
+    QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, #listEdit:focus {{
+        border: 1px solid {t['accent']}; }}
+    QSpinBox, QDoubleSpinBox {{ padding-right: 24px; }}
+    QSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
+        subcontrol-origin: border; width: 22px; border: none; background: transparent; }}
+    QSpinBox::up-button, QDoubleSpinBox::up-button {{ subcontrol-position: top right; }}
+    QSpinBox::down-button, QDoubleSpinBox::down-button {{ subcontrol-position: bottom right; }}
+    QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{ image: url("{ICONS}/chevron-up.svg"); width: 10px; height: 10px; }}
+    QSpinBox::down-arrow, QDoubleSpinBox::down-arrow, QComboBox::down-arrow {{
+        image: url("{ICONS}/chevron-down.svg"); width: 10px; height: 10px; }}
+    QComboBox::drop-down {{ border: none; width: 26px; }}
+    QComboBox QAbstractItemView {{ background: {t['bg']}; border: 1px solid {t['border']};
+        selection-background-color: {t['hover']}; selection-color: {t['text']}; }}
+    QCheckBox {{ spacing: 8px; }}
+    #danger {{ background: transparent; color: {t['error']}; border: 1px solid {t['error']}; border-radius: 8px;
+               padding: 7px 16px; }}
+    #danger:hover {{ background: {t['hover']}; }}
+    #secondary:disabled, QCheckBox:disabled {{ color: {t['muted']}; }}
+
     QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
     QScrollBar::handle:vertical {{ background: {t['scroll']}; border-radius: 3px; min-height: 30px; }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
@@ -157,32 +200,15 @@ def stylesheet(t: dict) -> str:
 
 
 def is_dark(app: QApplication) -> bool:
+    choice = ctx.cfg.get("interface", {}).get("theme", "auto")
+    if choice in ("light", "dark"):
+        return choice == "dark"
     scheme = getattr(app.styleHints(), "colorScheme", lambda: None)()   # Qt 6.5+
     if scheme == Qt.ColorScheme.Dark:
         return True
     if scheme == Qt.ColorScheme.Light:
         return False
     return app.palette().color(QPalette.Window).lightness() < 128
-
-
-class WrapLabel(QLabel):
-    """QLabel à retour à la ligne qui réclame toujours la hauteur de son texte.
-
-    Sans cela, Qt calcule parfois la hauteur pour une autre largeur et coupe la fin du texte
-    (ex. une conversation rouverte, dessinée avant que la fenêtre ait sa taille).
-    """
-
-    def resizeEvent(self, e):
-        super().resizeEvent(e)
-        h = self.heightForWidth(self.width())
-        if h > 0 and h != self.minimumHeight():
-            self.setMinimumHeight(h)
-
-    def setText(self, text: str) -> None:
-        super().setText(text)
-        h = self.heightForWidth(self.width())
-        if h > 0:
-            self.setMinimumHeight(h)
 
 
 def _label(text: str = "", name: str = "", fmt=Qt.PlainText, selectable: bool = False) -> QLabel:
@@ -475,9 +501,10 @@ class Composer(QPlainTextEdit):
 
 # ---------------------------------------------------------------------------------------------- fenêtre
 class ChatWindow(QMainWindow):
-    def __init__(self, agent, confirmer: QtConfirmer, bridge: Bridge):
+    def __init__(self, agent, confirmer: QtConfirmer, bridge: Bridge, apply_theme=None):
         super().__init__()
         self.agent, self.confirmer, self.bridge = agent, confirmer, bridge
+        self.apply_theme = apply_theme or (lambda: None)
         self.worker: AgentWorker | None = None
         self.current: AssistantMessage | None = None
         self.pending: ConfirmCard | None = None
@@ -505,6 +532,7 @@ class ChatWindow(QMainWindow):
         bridge.confirm_requested.connect(self.on_confirm)
         QShortcut(QKeySequence.New, self, activated=self.new_chat)
         QShortcut(QKeySequence(Qt.Key_Escape), self, activated=self.stop)
+        QShortcut(QKeySequence("Ctrl+,"), self, activated=self.open_settings)
 
         self.render_timer = QTimer(self)
         self.render_timer.timeout.connect(lambda: self.current and self.current.render())
@@ -540,8 +568,18 @@ class ChatWindow(QMainWindow):
         self.chat_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.chat_list.customContextMenuRequested.connect(self._chat_menu)
         lay.addWidget(self.chat_list, 1)
-        lay.addWidget(_label(f"● Local · {ctx.llm.model} · {ctx.os.name}", "footer"))
+        settings = QPushButton("⚙   Paramètres")
+        settings.setObjectName("sideButton")
+        settings.setCursor(Qt.PointingHandCursor)
+        settings.clicked.connect(self.open_settings)
+        lay.addWidget(settings)
+        self.footer = _label("", "footer")
+        self._update_footer()
+        lay.addWidget(self.footer)
         return side
+
+    def _update_footer(self) -> None:
+        self.footer.setText(f"● Local · {ctx.llm.model} · {ctx.os.name}")
 
     def _build_main(self) -> QWidget:
         main = QWidget()
@@ -712,6 +750,41 @@ class ChatWindow(QMainWindow):
         self.worker.finished_with.connect(self.on_answer)
         self.worker.start()
         self._set_busy(True)
+
+    # ------------------------------------------------------------ paramètres
+    def open_settings(self) -> None:
+        self.reveal()
+        dialog = SettingsDialog(ctx.cfg, self, on_chats_cleared=self._chats_cleared)
+        if dialog.exec() == QDialog.Accepted and dialog.result_cfg:
+            save_config(dialog.result_cfg)
+            self.apply_settings(dialog.result_cfg)
+
+    def apply_settings(self, new: dict) -> None:
+        """Applique tout de suite ce qui peut l'être : le cerveau, les limites, la sécurité, la recherche, le thème."""
+        old_model = ctx.llm.model
+        ctx.cfg.clear()            # même dictionnaire que celui de l'agent et des outils : tous voient le changement
+        ctx.cfg.update(new)
+        llm_cfg, llm = new.get("llm", {}), ctx.llm
+        llm.host = llm_cfg.get("host", llm.host).rstrip("/")
+        llm.model = llm_cfg.get("model", llm.model)
+        llm.vision_model = llm_cfg.get("vision_model") or None
+        llm.timeout = llm_cfg.get("timeout", llm.timeout)
+        llm.options = llm_cfg.get("options", {})
+        llm.keep_alive = llm_cfg.get("keep_alive", llm.keep_alive)
+        a = new.get("assistant", {})
+        self.agent.max_steps = a.get("max_steps", self.agent.max_steps)
+        self.agent.max_output = a.get("max_tool_output", self.agent.max_output)
+        self.agent.max_history = a.get("max_history_chars", self.agent.max_history)
+        self._update_footer()
+        self.apply_theme()
+        if llm.model != old_model:      # le nouveau cerveau lit ses consignes tout de suite
+            threading.Thread(target=self.agent.warm_up, daemon=True).start()
+
+    def _chats_cleared(self) -> None:
+        self.chat_id = None              # la conversation en cours sera ré-enregistrée comme nouvelle
+        if not self.busy:
+            self.new_chat()
+        self.refresh_chats()
 
     # ------------------------------------------------------------ pièces jointes
     def pick_files(self) -> None:
@@ -972,6 +1045,7 @@ def run_gui(cfg: dict) -> int:
         return 0
     app.setQuitOnLastWindowClosed(False)
     app.setStyle("Fusion")
+    ctx.cfg = cfg                 # le thème choisi dans les Paramètres est lu dès maintenant
     apply_theme = lambda *_: app.setStyleSheet(stylesheet(DARK if is_dark(app) else LIGHT))  # noqa: E731
     apply_theme()
     if hasattr(app.styleHints(), "colorSchemeChanged"):
@@ -982,7 +1056,7 @@ def run_gui(cfg: dict) -> int:
     agent = create_agent(cfg, confirmer)
     agent.on_event = lambda kind, data: bridge.event.emit(kind, data)
 
-    window = ChatWindow(agent, confirmer, bridge)
+    window = ChatWindow(agent, confirmer, bridge, apply_theme=apply_theme)
     server = _listen_for_instances(app, window)  # noqa: F841  (doit vivre aussi longtemps que l'application)
 
     tray = QSystemTrayIcon(app.style().standardIcon(QStyle.SP_ComputerIcon), app)
@@ -990,6 +1064,7 @@ def run_gui(cfg: dict) -> int:
     menu = QMenu()
     menu.addAction("Ouvrir Jarvis", window.reveal)
     menu.addAction("Nouvelle conversation", lambda: (window.reveal(), window.new_chat()))
+    menu.addAction("Paramètres…", window.open_settings)
     menu.addSeparator()
     menu.addAction("Quitter", app.quit)
     tray.setContextMenu(menu)

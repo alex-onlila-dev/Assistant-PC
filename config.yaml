@@ -9,6 +9,10 @@ assistant:
   max_tool_output: 6000    # caractères max renvoyés au modèle par outil (plus = plus lent à lire)
   max_history_chars: 16000 # au-delà, les plus anciens échanges sont oubliés (reste sous num_ctx)
 
+# --- Fenêtre de discussion ---
+interface:
+  theme: "auto"            # auto (comme le système) | light | dark
+
 # --- Cerveau : modèle local via Ollama (aucune API externe) ---
 llm:
   host: "http://localhost:11434"

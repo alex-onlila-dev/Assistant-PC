@@ -64,6 +64,10 @@ class Memory:
     def delete_chat(self, chat_id: int) -> None:
         self._exec("DELETE FROM chats WHERE id = ?", (chat_id,))
 
+    def delete_all_chats(self) -> None:
+        self._exec("DELETE FROM chats")
+        self._exec("DELETE FROM messages")
+
     # --- alarmes ---
     def add_alarm(self, at: datetime, label: str) -> int:
         return self._exec("INSERT INTO alarms (at, label) VALUES (?, ?)",

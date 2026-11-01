@@ -61,3 +61,40 @@ def test_chats_are_saved_and_reloaded(tmp_path):
     assert title == "Salut !" and loaded[-1]["content"] == "Bonjour"
     mem.delete_chat(chat_id)
     assert mem.list_chats() == []
+
+
+def test_user_config_is_completed_by_defaults_and_saved(tmp_path, monkeypatch):
+    import yaml
+    import jarvis.config as config
+    user = tmp_path / "config.yaml"
+    user.write_text("llm:\n  model: mon-modele\n", encoding="utf-8")   # vieille config : réglages manquants
+    monkeypatch.setattr(config, "USER_CONFIG", user)
+    cfg = config.load_config()
+    assert cfg["llm"]["model"] == "mon-modele"
+    assert cfg["llm"]["host"] == "http://localhost:11434"     # complété par les valeurs par défaut
+    assert cfg["interface"]["theme"] == "auto"
+
+    cfg["assistant"]["max_steps"] = 7
+    config.save_config(cfg)
+    saved = yaml.safe_load(user.read_text(encoding="utf-8"))
+    assert saved["assistant"]["max_steps"] == 7 and "data_dir" not in saved
+    assert (tmp_path / "config.yaml.bak").read_text(encoding="utf-8").startswith("llm:")
+    assert config.load_config()["assistant"]["max_steps"] == 7
+
+
+def test_autostart_follows_installed_menu_entry(tmp_path, monkeypatch):
+    import sys
+    from jarvis import autostart
+    if sys.platform.startswith("win") or sys.platform == "darwin":
+        return
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    assert not autostart.available()
+    entry = tmp_path / "data/applications/jarvis.desktop"
+    entry.parent.mkdir(parents=True)
+    entry.write_text("[Desktop Entry]\nName=Jarvis (voix)\n")
+    assert autostart.available() and not autostart.enabled()
+    autostart.set_enabled(True)
+    assert (tmp_path / "config/autostart/jarvis.desktop").read_text() == entry.read_text()
+    autostart.set_enabled(False)
+    assert not autostart.enabled()
