@@ -14,14 +14,44 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QF
 from jarvis import autostart
 from jarvis.config import DEFAULT_CONFIG, load_config
 from jarvis.core.context import ctx
-from jarvis.core.llm import LLMError, OllamaClient
+from jarvis.core.llm import LLMError, OllamaClient, create_llm
+from jarvis.core.llm.openai_compat import PRESETS
 from jarvis.ui.widgets import WrapLabel
 
 VOICE_NOTE = "S'applique au prochain lancement de « Jarvis (voix) »."
 
-# (clé dans config.yaml, type, libellé, explication, options)
+# (clé dans config.yaml, type, libellé, explication, options) ; « heading » : simple intertitre
 SECTIONS = [
-    ("Cerveau", "Le modèle local qui comprend tes demandes et y répond (Ollama).", [
+    ("Cerveau", "Ce qui comprend tes demandes et y répond. Sur cet ordinateur avec Ollama (rien ne sort de la "
+                "machine), ou en ligne avec Claude ou un autre service (rien à installer, rapide même sur un petit "
+                "PC, mais tes demandes et les fichiers que Jarvis lit sont envoyés à ce service). "
+                "Pris en compte tout de suite, et par « Jarvis (voix) » dès la conversation suivante.", [
+        ("llm.provider", "choice", "Cerveau utilisé",
+         "Automatique : Ollama s'il est installé, sinon le service en ligne dont la clé est renseignée.",
+         {"options": [("auto", "Automatique"), ("ollama", "Ollama — sur cet ordinateur"),
+                      ("claude", "Claude — clé API Anthropic"), ("openai", "Autre service — clé API compatible OpenAI")]}),
+        ("llm.timeout", "int", "Attente maximale d'une réponse", "Au-delà, Jarvis abandonne.",
+         {"min": 30, "max": 3600, "step": 30, "suffix": " s"}),
+        ("", "heading", "Claude (Anthropic)", "", {}),
+        ("llm.claude.api_key", "secret", "Clé API",
+         "À créer sur console.anthropic.com, rubrique API Keys. Payée à l'usage, à part : un abonnement Claude "
+         "Pro ou Max ne fonctionne que dans les applications Claude. Vide = variable ANTHROPIC_API_KEY.", {}),
+        ("llm.claude.model", "choice", "Modèle",
+         "Opus : le plus capable. Sonnet : équilibré. Haiku : le plus rapide et le moins cher.",
+         {"options": [("claude-opus-5-5", "Claude Opus 5.5"), ("claude-sonnet-5-5", "Claude Sonnet 5.5"),
+                      ("claude-haiku-5-5", "Claude Haiku 5.5")], "editable": True}),
+        ("llm.claude.effort", "choice", "Réflexion",
+         "Plus de réflexion = réponses plus justes, mais plus lentes et plus chères.",
+         {"options": [("low", "Rapide (conseillé à la voix)"), ("medium", "Équilibrée"), ("high", "Approfondie")]}),
+        ("", "heading", "Autre service (compatible OpenAI)", "", {}),
+        ("llm.openai.base_url", "choice", "Service",
+         "Ou tape l'adresse de n'importe quel service compatible OpenAI.", {"options": PRESETS, "editable": True}),
+        ("llm.openai.api_key", "secret", "Clé API", "Inutile pour un serveur local comme LM Studio.", {}),
+        ("llm.openai.model", "text", "Modèle", "Le nom exact donné par le service.", {}),
+        ("llm.openai.vision_model", "text", "Modèle vision", "Pour les images et vidéos. Vide = le modèle principal.", {}),
+    ]),
+    ("Ollama (local)", "Le modèle qui tourne sur ton ordinateur : rien ne quitte la machine, "
+                       "mais il demande de la mémoire vive et du temps de calcul.", [
         ("llm.model", "model", "Modèle principal",
          "Répond et utilise les outils. Plus gros = plus juste, mais plus lent.", {}),
         ("llm.vision_model", "model", "Modèle vision",
@@ -35,8 +65,6 @@ SECTIONS = [
         ("llm.keep_alive", "choice", "Garder le modèle chargé",
          "Après une réponse. Plus long = pas d'attente de chargement, mais la mémoire vive reste occupée.",
          {"options": [("5m", "5 minutes"), ("30m", "30 minutes"), ("2h", "2 heures"), (-1, "Toujours")]}),
-        ("llm.timeout", "int", "Attente maximale d'une réponse", "Au-delà, Jarvis abandonne.",
-         {"min": 30, "max": 3600, "step": 30, "suffix": " s"}),
         ("llm.host", "text", "Adresse d'Ollama", "À changer seulement si Ollama tourne sur une autre machine.", {}),
     ]),
     ("Comportement", "Comment Jarvis travaille et s'affiche.", [
@@ -150,6 +178,28 @@ class PullWorker(QThread):
             self.finished_with.emit(str(e))
 
 
+class TestWorker(QThread):
+    """Pose une toute petite question au cerveau choisi dans le formulaire (avant d'enregistrer)."""
+    finished_with = Signal(str, bool)   # message, réussite
+
+    def __init__(self, cfg: dict):
+        super().__init__()
+        self.cfg = cfg
+
+    def run(self):
+        try:
+            llm = create_llm(self.cfg)
+            if not llm.ensure_running():
+                self.finished_with.emit(f"● {llm.setup_hint}", False)
+                return
+            llm.chat([{"role": "user", "content": "Réponds seulement : OK"}])
+            self.finished_with.emit(f"● {llm.label} · {llm.model} répond.", True)
+        except LLMError as e:
+            self.finished_with.emit(f"● {e}", False)
+        except Exception as e:
+            self.finished_with.emit(f"● {type(e).__name__} : {e}", False)
+
+
 class SettingsDialog(QDialog):
     def __init__(self, cfg: dict, parent=None, on_chats_cleared=None):
         super().__init__(parent)
@@ -162,6 +212,7 @@ class SettingsDialog(QDialog):
         self.fields: dict[str, tuple] = {}   # clé -> (lire, écrire)
         self.model_boxes: list[QComboBox] = []
         self.pull: PullWorker | None = None
+        self.test: TestWorker | None = None
         self.models = self._installed_models(get_path(cfg, "llm.host", "http://localhost:11434"))
 
         body = QHBoxLayout()
@@ -170,8 +221,10 @@ class SettingsDialog(QDialog):
         self.nav.setObjectName("nav")
         self.nav.setFixedWidth(200)
         self.pages = QStackedWidget()
+        tops = {"Cerveau": self._test_bar, "Ollama (local)": self._ollama_bar}
         for title, intro, fields in SECTIONS:
-            self._add_page(title, intro, self._build_fields(fields), top=self._ollama_bar() if title == "Cerveau" else None)
+            content = self._build_fields(fields)
+            self._add_page(title, intro, content, top=tops[title]() if title in tops else None)
         self._add_page("Démarrage et données", "Lancement de Jarvis et conversations enregistrées.", self._build_data())
         self.nav.currentRowChanged.connect(self.pages.setCurrentIndex)
         self.nav.setCurrentRow(0)
@@ -235,6 +288,13 @@ class SettingsDialog(QDialog):
         form.setVerticalSpacing(16)
         form.setLabelAlignment(Qt.AlignLeft | Qt.AlignTop)
         for key, kind, label, help_text, opts in specs:
+            if kind == "heading":
+                head = QLabel(label)
+                font = head.font()
+                font.setBold(True)
+                head.setFont(font)
+                form.addRow(head)
+                continue
             widget, read, write = self._make(kind, opts)
             write(get_path(self.cfg, key))
             self.fields[key] = (read, write)
@@ -254,8 +314,10 @@ class SettingsDialog(QDialog):
 
     def _make(self, kind: str, opts: dict):
         """Crée le champ et ses fonctions (lire la valeur, afficher une valeur)."""
-        if kind == "text":
+        if kind in ("text", "secret"):
             w = QLineEdit()
+            if kind == "secret":
+                w.setEchoMode(QLineEdit.PasswordEchoOnEdit)   # visible pendant la saisie, masquée ensuite
             return w, lambda: w.text().strip(), lambda v: w.setText("" if v is None else str(v))
         if kind == "int":
             w = QSpinBox()
@@ -363,7 +425,7 @@ class SettingsDialog(QDialog):
         combo = QComboBox()
         combo.setEditable(True)
         combo.setMinimumWidth(260)
-        combo.addItems(self.models)
+        combo.addItems(self.models or [])     # None : Ollama absent ou arrêté
         self.model_boxes.append(combo)
         download = QPushButton("Télécharger")
         download.setObjectName("secondary")
@@ -392,6 +454,35 @@ class SettingsDialog(QDialog):
             check(value or "")
 
         return row, lambda: combo.currentText().strip(), write
+
+    # ------------------------------------------------------------ test du cerveau
+    def _test_bar(self) -> QWidget:
+        bar = QWidget()
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(0, 0, 0, 0)
+        self.test_status = _help("Vérifie que le cerveau choisi répond, avant d'enregistrer.")
+        self.test_button = QPushButton("Tester le cerveau")
+        self.test_button.setObjectName("secondary")
+        self.test_button.clicked.connect(self._test_brain)
+        h.addWidget(self.test_status, 1)
+        h.addWidget(self.test_button)
+        return bar
+
+    def _test_brain(self) -> None:
+        if self.test and self.test.isRunning():
+            return
+        self.test = TestWorker(self._form_cfg())
+        self.test.finished_with.connect(self._tested)
+        self.test_status.setText("Question envoyée…")
+        self.test_button.setEnabled(False)
+        self.test.start()
+
+    def _tested(self, message: str, ok: bool) -> None:
+        self.test_button.setEnabled(True)
+        self.test_status.setText(message)
+        self.test_status.setObjectName("ok" if ok else "warn")
+        self.test_status.style().unpolish(self.test_status)
+        self.test_status.style().polish(self.test_status)
 
     # ------------------------------------------------------------ Ollama
     @staticmethod
@@ -494,15 +585,24 @@ class SettingsDialog(QDialog):
         for key, (_, write) in self.fields.items():
             write(get_path(defaults, key))
 
-    def _save(self) -> None:
+    def _form_cfg(self) -> dict:
+        """La configuration telle qu'elle est remplie dans le formulaire."""
         new = copy.deepcopy(self.cfg)
         for key, (read, _) in self.fields.items():
             set_path(new, key, read())
+        return new
+
+    def _save(self) -> None:
+        new = self._form_cfg()
+        llm = new["llm"]
         if not new["activation"]["modes"]:
             QMessageBox.warning(self, "Activation", "Choisis au moins une façon de réveiller Jarvis.")
             return
-        if not new["llm"]["model"]:
-            QMessageBox.warning(self, "Cerveau", "Choisis un modèle principal.")
+        if llm.get("provider") == "ollama" and not llm["model"]:
+            QMessageBox.warning(self, "Cerveau", "Choisis un modèle Ollama (page « Ollama (local) »).")
+            return
+        if llm.get("provider") == "openai" and not (llm["openai"].get("base_url") and llm["openai"].get("model")):
+            QMessageBox.warning(self, "Cerveau", "Indique l'adresse du service et le nom du modèle.")
             return
         if self.autostart_box.isEnabled() and self.autostart_box.isChecked() != autostart.enabled():
             try:

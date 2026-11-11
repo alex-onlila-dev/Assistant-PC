@@ -42,9 +42,8 @@ class ConsoleUI(SessionUI):
 def run_voice(cfg: dict) -> int:
     print("Chargement de la voix…")
     session = VoiceSession(cfg, ConsoleUI())
-    if not ctx.llm.ensure_running():
-        print("⚠️  Ollama ne répond pas. Lance « ollama serve » puis relance Jarvis.")
-        return 1
+    if not ctx.llm.ensure_running():   # on écoute quand même : le cerveau peut être choisi entre-temps
+        print(f"⚠️  {ctx.llm.setup_hint}")
     try:
         session.run()
     except KeyboardInterrupt:

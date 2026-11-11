@@ -1,15 +1,32 @@
 """Client du cerveau local (Ollama). Aucun appel à une API externe."""
 import json
+import os
+import shutil
+import sys
+from pathlib import Path
 from typing import Callable
 
 import httpx
 
-
-class LLMError(RuntimeError):
-    pass
+from jarvis.core.llm.base import Delta, LLMClient, LLMError
 
 
-class OllamaClient:
+def _exe() -> str | None:
+    """ollama.exe, même s'il vient d'être installé et n'est pas encore dans le PATH de ce programme."""
+    found = shutil.which("ollama")
+    if found:
+        return found
+    if sys.platform.startswith("win"):
+        default = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs/Ollama/ollama.exe"
+        return str(default) if default.exists() else None
+    return None
+
+
+class OllamaClient(LLMClient):
+    provider = "ollama"
+    label = "Local"
+    nudge = True
+
     def __init__(self, host: str, model: str, vision_model: str | None = None,
                  timeout: int = 300, options: dict | None = None, keep_alive: str | int = "30m"):
         self.host = host.rstrip("/")
@@ -18,6 +35,17 @@ class OllamaClient:
         self.timeout = timeout
         self.options = options or {}
         self.keep_alive = keep_alive   # garde le modèle en mémoire entre deux demandes : pas de rechargement
+
+    @property
+    def setup_hint(self) -> str:
+        if not _exe():
+            return ("Ollama n'est pas installé : installe-le (ollama.com), ou choisis Claude ou un autre service "
+                    "dans Paramètres > Cerveau.")
+        return "Ollama ne répond pas. Lance « ollama serve » puis redémarre Jarvis."
+
+    @staticmethod
+    def installed(host: str = "http://localhost:11434") -> bool:
+        return _exe() is not None or OllamaClient(host, "").ping()
 
     def ping(self) -> bool:
         try:
@@ -29,12 +57,10 @@ class OllamaClient:
         """Démarre Ollama s'il est installé mais arrêté (ex. Jarvis lancé à l'ouverture de session)."""
         if self.ping():
             return True
-        import shutil
         import subprocess
-        import sys
         import time
 
-        exe = shutil.which("ollama")
+        exe = _exe()
         if not exe or ("localhost" not in self.host and "127.0.0.1" not in self.host):
             return False
         flags = {"creationflags": 0x08000000} if sys.platform.startswith("win") else {"start_new_session": True}
@@ -78,8 +104,16 @@ class OllamaClient:
         except httpx.HTTPError:
             pass
 
+    def prime(self, messages: list[dict], tools: list[dict]) -> None:
+        """Fait lire au cerveau ses consignes et ses outils dès le démarrage.
+
+        Ollama garde en cache le début de conversation déjà lu : la première vraie question n'a plus
+        à relire ces milliers de mots (sinon plusieurs dizaines de secondes sur une petite machine).
+        """
+        self.chat(messages + [{"role": "user", "content": "Bonjour"}], tools=tools, options={"num_predict": 1})
+
     def chat(self, messages: list[dict], tools: list[dict] | None = None, model: str | None = None,
-             on_delta: Callable[[str], None] | None = None, options: dict | None = None) -> dict:
+             on_delta: Delta | None = None, options: dict | None = None) -> dict:
         """Renvoie le message de l'assistant : {"role", "content", "tool_calls"?}.
 
         on_delta : si fourni, la réponse arrive en continu et chaque morceau de texte lui est passé
@@ -88,7 +122,8 @@ class OllamaClient:
         """
         payload = {
             "model": model or self.model,
-            "messages": messages,
+            # « native » : réponse brute d'un autre cerveau (Claude), qu'Ollama n'a pas à lire
+            "messages": [{k: v for k, v in m.items() if k != "native"} for m in messages],
             "stream": on_delta is not None,
             "options": {**self.options, **(options or {})},
             "keep_alive": self.keep_alive,
@@ -109,16 +144,19 @@ class OllamaClient:
             raise LLMError("Ollama ne répond pas. Lance-le avec : ollama serve") from e
         except httpx.HTTPStatusError as e:
             raise LLMError(f"Erreur Ollama : {e.response.text}") from e
+        except httpx.TimeoutException as e:
+            raise LLMError("Ollama met trop de temps à répondre (réglage « Attente maximale »).") from e
+        except (httpx.HTTPError, json.JSONDecodeError, KeyError) as e:   # connexion coupée, réponse illisible
+            raise LLMError(f"Échange avec Ollama interrompu : {e}") from e
 
     def describe_images(self, images_b64: list[str], prompt: str) -> str:
         """Fait « voir » une ou plusieurs images au modèle vision."""
         if not self.vision_model:
             raise LLMError("Aucun modèle vision configuré (llm.vision_model).")
-        msg = {"role": "user", "content": prompt, "images": images_b64}
-        return self.chat([msg], model=self.vision_model).get("content", "")
+        return super().describe_images(images_b64, prompt)
 
 
-def _read_stream(lines, on_delta: Callable[[str], None]) -> dict:
+def _read_stream(lines, on_delta: Delta) -> dict:
     """Assemble le message à partir des lignes JSON envoyées par Ollama en mode continu."""
     content, tool_calls = [], []
     for line in lines:

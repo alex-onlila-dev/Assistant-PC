@@ -3,7 +3,7 @@
 
 class Context:
     cfg: dict = {}
-    llm = None       # OllamaClient
+    llm = None       # LLMClient : Ollama, Claude ou service compatible OpenAI
     os = None        # OSAdapter
     memory = None    # Memory
     alarms = None    # AlarmService

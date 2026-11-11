@@ -3,23 +3,15 @@ from jarvis.core.agent import Agent
 from jarvis.core.alarms import AlarmService
 from jarvis.core.confirmation import Confirmer
 from jarvis.core.context import ctx
-from jarvis.core.llm import OllamaClient
+from jarvis.core.llm import create_llm
 from jarvis.core.memory import Memory
 from jarvis.core.tools import registry
 from jarvis.os_adapters import get_adapter
 
 
 def create_agent(cfg: dict, confirmer: Confirmer, speaker=None, voice: bool = False) -> Agent:
-    llm_cfg = cfg.get("llm", {})
     ctx.cfg = cfg
-    ctx.llm = OllamaClient(
-        host=llm_cfg.get("host", "http://localhost:11434"),
-        model=llm_cfg.get("model", "qwen2.5:7b"),
-        vision_model=llm_cfg.get("vision_model"),
-        timeout=llm_cfg.get("timeout", 300),
-        options=llm_cfg.get("options", {}),
-        keep_alive=llm_cfg.get("keep_alive", "30m"),
-    )
+    ctx.llm = create_llm(cfg)
     ctx.os = get_adapter()
     ctx.memory = Memory(cfg["data_dir"])
     ctx.speaker = speaker

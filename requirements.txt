@@ -3,6 +3,9 @@ httpx>=0.27
 pyyaml>=6.0
 psutil>=5.9
 
+# --- Cerveau en ligne (optionnel : Claude) ---
+anthropic>=2.8
+
 # --- Fichiers ---
 send2trash>=1.8
 filetype>=1.2

@@ -297,9 +297,11 @@ def run_overlay(cfg: dict) -> int:
     bridge = Bridge()
     print("Chargement de la voix…")
     session = VoiceSession(cfg, QtSessionUI(bridge))
-    if not ctx.llm.ensure_running():
-        print("⚠️  Ollama ne répond pas. Lance « ollama serve » puis relance Jarvis.")
-        return 1
+    # Sans cerveau, on reste à l'écoute quand même : Jarvis dira quoi faire, et prendra le cerveau
+    # choisi entre-temps dans les Paramètres dès la conversation suivante.
+    brain_hint = "" if ctx.llm.ensure_running() else ctx.llm.setup_hint
+    if brain_hint:
+        print(f"⚠️  {brain_hint}")
 
     def end_by_click():
         bubble.disappear()
@@ -329,7 +331,10 @@ def run_overlay(cfg: dict) -> int:
 
     def ready(how: str):
         print(f"Jarvis est prêt. Pour me parler, {how} (ou menu Jarvis > Parler à Jarvis).")
-        tray.showMessage("Jarvis est prêt", f"Pour me parler, {how}.", QSystemTrayIcon.Information, 3000)
+        if brain_hint:
+            tray.showMessage("Jarvis n'a pas encore de cerveau", brain_hint, QSystemTrayIcon.Warning, 10000)
+        else:
+            tray.showMessage("Jarvis est prêt", f"Pour me parler, {how}.", QSystemTrayIcon.Information, 3000)
     bridge.ready.connect(ready)
 
     worker = threading.Thread(target=session.run, daemon=True)

@@ -28,6 +28,7 @@ from jarvis.bootstrap import create_agent
 from jarvis.config import save_config
 from jarvis.core.confirmation import Confirmer
 from jarvis.core.context import ctx
+from jarvis.core.llm import create_llm
 from jarvis.core.tools import TOOL_LABELS
 from jarvis.ui.settings import SettingsDialog
 from jarvis.ui.widgets import WrapLabel
@@ -541,7 +542,7 @@ class ChatWindow(QMainWindow):
         self.refresh_chats()
         self.composer.setFocus()
         if not ctx.llm.ensure_running():
-            self.notice("Ollama ne répond pas. Lance « ollama serve » puis redémarre Jarvis.")
+            self.notice(ctx.llm.setup_hint)
         else:   # lit consignes et outils pendant que tu tapes ta première question
             threading.Thread(target=agent.warm_up, daemon=True).start()
 
@@ -579,7 +580,7 @@ class ChatWindow(QMainWindow):
         return side
 
     def _update_footer(self) -> None:
-        self.footer.setText(f"● Local · {ctx.llm.model} · {ctx.os.name}")
+        self.footer.setText(f"● {ctx.llm.label} · {ctx.llm.model} · {ctx.os.name}")
 
     def _build_main(self) -> QWidget:
         main = QWidget()
@@ -761,23 +762,19 @@ class ChatWindow(QMainWindow):
 
     def apply_settings(self, new: dict) -> None:
         """Applique tout de suite ce qui peut l'être : le cerveau, les limites, la sécurité, la recherche, le thème."""
-        old_model = ctx.llm.model
+        old = (ctx.llm.provider, ctx.llm.model)
         ctx.cfg.clear()            # même dictionnaire que celui de l'agent et des outils : tous voient le changement
         ctx.cfg.update(new)
-        llm_cfg, llm = new.get("llm", {}), ctx.llm
-        llm.host = llm_cfg.get("host", llm.host).rstrip("/")
-        llm.model = llm_cfg.get("model", llm.model)
-        llm.vision_model = llm_cfg.get("vision_model") or None
-        llm.timeout = llm_cfg.get("timeout", llm.timeout)
-        llm.options = llm_cfg.get("options", {})
-        llm.keep_alive = llm_cfg.get("keep_alive", llm.keep_alive)
+        ctx.llm = self.agent.llm = create_llm(new)   # Ollama, Claude ou autre service : le cerveau peut changer
         a = new.get("assistant", {})
         self.agent.max_steps = a.get("max_steps", self.agent.max_steps)
         self.agent.max_output = a.get("max_tool_output", self.agent.max_output)
         self.agent.max_history = a.get("max_history_chars", self.agent.max_history)
         self._update_footer()
         self.apply_theme()
-        if llm.model != old_model:      # le nouveau cerveau lit ses consignes tout de suite
+        if not ctx.llm.ensure_running():
+            self.notice(ctx.llm.setup_hint)
+        elif (ctx.llm.provider, ctx.llm.model) != old:   # le nouveau cerveau lit ses consignes tout de suite
             threading.Thread(target=self.agent.warm_up, daemon=True).start()
 
     def _chats_cleared(self) -> None:

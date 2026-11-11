@@ -13,12 +13,33 @@ assistant:
 interface:
   theme: "auto"            # auto (comme le système) | light | dark
 
-# --- Cerveau : modèle local via Ollama (aucune API externe) ---
+# --- Cerveau ---
+#   auto   : Ollama s'il est installé, sinon Claude ou l'autre service si leur clé est renseignée
+#   ollama : modèle local, rien ne quitte l'ordinateur
+#   claude : Claude (Anthropic), avec une clé API — tes demandes et les fichiers lus partent chez Anthropic
+#   openai : service compatible OpenAI (OpenAI, Mistral, Groq, OpenRouter, Gemini, LM Studio…)
 llm:
+  provider: "auto"
+  timeout: 300
+
+  # Claude : clé à créer sur https://console.anthropic.com (paiement à l'usage, distinct d'un abonnement Claude Pro/Max)
+  claude:
+    api_key: ""                # vide = variable ANTHROPIC_API_KEY, ou profil « ant auth login »
+    model: "claude-opus-5-5"   # claude-opus-5-5 (le plus capable) | claude-sonnet-5-5 | claude-haiku-5-5 (rapide, économique)
+    effort: "medium"           # low (rapide, conseillé à la voix) | medium | high (plus juste, plus lent et plus cher)
+    fallback: true             # si Claude refuse une demande, un autre modèle Claude la reprend
+
+  # Service compatible OpenAI
+  openai:
+    base_url: "https://api.openai.com/v1"
+    api_key: ""
+    model: ""                  # nom exact donné par le service
+    vision_model: ""           # vide = le modèle principal
+
+  # Ollama (local)
   host: "http://localhost:11434"
   model: "qwen2.5:7b"          # modèle texte qui gère les outils (tool calling)
   vision_model: "qwen2.5vl:7b" # modèle qui « voit » les images et images de vidéo
-  timeout: 300
   keep_alive: "30m"            # le modèle reste en mémoire 30 min après usage : réponses sans temps de chargement
   options:
     temperature: 0.3

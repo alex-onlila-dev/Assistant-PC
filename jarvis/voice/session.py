@@ -12,8 +12,10 @@ import re
 import threading
 
 from jarvis.bootstrap import create_agent
+from jarvis.config import USER_CONFIG, load_config
 from jarvis.core.confirmation import Confirmer, parse_yes_no
 from jarvis.core.context import ctx
+from jarvis.core.llm import create_llm
 from jarvis.core.tools import TOOL_LABELS
 from jarvis.voice.activation import ActivationListener, strip_wake_word
 from jarvis.voice.audio_io import beep, record_until_silence
@@ -119,6 +121,7 @@ class VoiceSession:
         self.agent = create_agent(cfg, VoiceConfirmer(self), speaker=self.speaker, voice=True)
         self.agent.on_event = self._on_event
         self.listener = ActivationListener(cfg)
+        self._config_mtime = self._config_time()
 
         self._state = "idle"
         self._streamed = False
@@ -158,6 +161,7 @@ class VoiceSession:
     def converse(self, text: str) -> None:
         """Enchaîne les échanges sans mot d'activation, jusqu'à la fin de la conversation."""
         self.hang_up.clear()
+        self._refresh_brain()
         while text and not (self.hang_up.is_set() or self.quit.is_set()):
             self.ui.user_text(text)
             if is_quit_command(text):
@@ -176,7 +180,11 @@ class VoiceSession:
             self.set_state("thinking")
             self.ui.answer_reset()
             self._streamed = False
-            answer = self.agent.run(text, on_delta=self._on_delta)
+            try:
+                answer = self.agent.run(text, on_delta=self._on_delta)
+            except Exception as e:                       # le mode vocal ne doit jamais s'arrêter sur une erreur
+                print(f"Erreur pendant la réponse : {type(e).__name__}: {e}")
+                answer, self._streamed = "Désolé, un problème est survenu. Réessaie.", False
             if not self._streamed and answer:            # erreur ou réponse non diffusée : on la dit quand même
                 self._on_delta(answer)
             self.speech.flush()
@@ -217,6 +225,26 @@ class VoiceSession:
         self.end_conversation()
 
     # ------------------------------------------------------------ interne
+    @staticmethod
+    def _config_time() -> float:
+        try:
+            return USER_CONFIG.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    def _refresh_brain(self) -> None:
+        """Les Paramètres s'ouvrent dans la fenêtre de discussion, un autre programme : si la configuration
+        a changé depuis, on reprend le cerveau choisi (une clé API tout juste ajoutée, par exemple)."""
+        mtime = self._config_time()
+        if mtime == self._config_mtime:
+            return
+        self._config_mtime = mtime
+        try:
+            self.cfg["llm"] = load_config().get("llm", {})
+            ctx.llm = self.agent.llm = create_llm(self.cfg)
+        except Exception as e:
+            print(f"Configuration illisible, cerveau inchangé : {e}")
+
     def set_state(self, name: str, detail: str = "") -> None:
         self._state = name
         self.ui.state(name, detail)

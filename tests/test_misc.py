@@ -82,6 +82,32 @@ def test_user_config_is_completed_by_defaults_and_saved(tmp_path, monkeypatch):
     assert config.load_config()["assistant"]["max_steps"] == 7
 
 
+def test_installer_brain_choice_is_saved_and_key_file_erased(tmp_path, monkeypatch):
+    import yaml
+    import jarvis.config as config
+    from jarvis import setup_brain
+    user = tmp_path / "config.yaml"
+    user.write_text("llm:\n  model: qwen2.5:3b\n", encoding="utf-8")
+    monkeypatch.setattr(config, "USER_CONFIG", user)
+    monkeypatch.setattr(setup_brain, "USER_CONFIG", user)
+    monkeypatch.setattr(setup_brain, "load_config", config.load_config)
+    monkeypatch.setattr(setup_brain, "save_config", config.save_config)
+    key_file = tmp_path / "cle.txt"
+    key_file.write_text("sk-ant-secret\n", encoding="utf-8")
+    monkeypatch.setenv("JARVIS_BRAIN", "claude")
+    monkeypatch.setenv("JARVIS_API_KEY_FILE", str(key_file))
+    assert setup_brain.main() == 0
+    saved = yaml.safe_load(user.read_text(encoding="utf-8"))["llm"]
+    assert saved["provider"] == "claude" and saved["claude"]["api_key"] == "sk-ant-secret"
+    assert saved["claude"]["model"] == "claude-opus-5-5" and saved["model"] == "qwen2.5:3b"   # le reste est gardé
+    assert not key_file.exists()
+
+    cfg = setup_brain.apply({"llm": {}}, "openai", "k", "https://api.mistral.ai/v1/", "mistral-small")
+    assert cfg["llm"]["openai"] == {"api_key": "k", "base_url": "https://api.mistral.ai/v1", "model": "mistral-small"}
+    monkeypatch.setenv("JARVIS_BRAIN", "gpt")
+    assert setup_brain.main() == 2
+
+
 def test_autostart_follows_installed_menu_entry(tmp_path, monkeypatch):
     import sys
     from jarvis import autostart

@@ -4,12 +4,16 @@
 #  Appelé par JarvisSetup.exe, ou à la main depuis le dossier du projet :
 #    powershell -ExecutionPolicy Bypass -File installers\windows\install.ps1
 #
-#  Options : -Yes          sans questions (réponses par défaut)
+#  Options : -Yes          sans questions (réponses par défaut ; le cerveau se choisit alors plus tard)
+#            -Brain X      cerveau : ollama | claude | openai | later (défaut : demandé)
+#            -BaseUrl URL  avec -Brain openai : adresse du service (ex. https://api.mistral.ai/v1)
+#            -ApiModel NOM avec -Brain claude ou openai : nom du modèle
+#            -KeyFile F    fichier contenant la clé API (effacé une fois lu) ; sinon variable JARVIS_API_KEY
 #            -NoAutostart  ne pas lancer Jarvis à l'ouverture de session
-#            -SkipOllama   ne pas installer Ollama ni télécharger le cerveau
+#            -SkipOllama   ne jamais installer Ollama
 #            -SkipModels   ne pas précharger Whisper / la voix / le mot d'activation
-#            -Model NOM    modèle Ollama (défaut : choisi selon la mémoire vive)
-#            -WithVision   télécharger aussi le modèle vision (~6 Go)
+#            -Model NOM    modèle Ollama (défaut : choisi selon la mémoire vive ; implique -Brain ollama)
+#            -WithVision   avec Ollama : télécharger aussi le modèle vision (~6 Go)
 #
 #  Jarvis s'installe pour ton compte, sans droits administrateur.
 # ============================================================
@@ -17,6 +21,8 @@ param(
     [string]$AppDir = "$env:LOCALAPPDATA\Jarvis\app",
     [switch]$Yes, [switch]$NoAutostart, [switch]$SkipOllama, [switch]$SkipModels,
     [string]$Model = "", [switch]$WithVision,
+    [ValidateSet("", "ollama", "claude", "openai", "later")][string]$Brain = "",
+    [string]$BaseUrl = "", [string]$ApiModel = "", [string]$KeyFile = "",
     [switch]$NoShortcuts   # JarvisSetup.exe crée lui-même les raccourcis
 )
 $ErrorActionPreference = "Stop"
@@ -37,15 +43,57 @@ function Ask($q)  {
 }
 function Have($c) { return [bool](Get-Command $c -ErrorAction SilentlyContinue) }
 
-# --- Mémoire vive -> taille du cerveau ---
+function ReadSecret($q) {
+    $s = Read-Host "  $q" -AsSecureString
+    return [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))
+}
+
+# --- Mémoire vive -> taille du cerveau local ---
 $RamGb = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
+if ($PSBoundParameters.ContainsKey("Model") -and -not $Brain) { $Brain = "ollama" }
 if (-not $Model) { $Model = if ($RamGb -lt 12) { "qwen2.5:3b" } else { "qwen2.5:7b" } }
+
+# --- Le cerveau : c'est l'utilisateur qui choisit ---
+$ApiKey = if ($KeyFile -and (Test-Path $KeyFile)) { (Get-Content $KeyFile -Raw).Trim() } else { "$env:JARVIS_API_KEY" }
+if ($KeyFile) { Remove-Item $KeyFile -ErrorAction SilentlyContinue }
+if (-not $Brain -and $Yes) { $Brain = "later" }
+if (-not $Brain) {
+    $advice = if ($RamGb -ge 12) { "1" } else { "2" }
+    Write-Host "Quel cerveau pour Jarvis ? (modifiable ensuite dans Paramètres > Cerveau)" -ForegroundColor White
+    Write-Host "  1. Ollama : sur cet ordinateur, sans Internet (télécharge ~5 Go, pour 12 Go de mémoire vive ou plus)"
+    Write-Host "  2. Claude : avec une clé API Anthropic, rien à télécharger"
+    Write-Host "  3. Autre service compatible OpenAI (OpenAI, Mistral, Groq, OpenRouter, Gemini, LM Studio…)"
+    Write-Host "  4. Plus tard"
+    $r = Read-Host "  Choix [1-4] (conseillé ici : $advice)"
+    if (-not $r) { $r = $advice }
+    $Brain = @{ "1" = "ollama"; "2" = "claude"; "3" = "openai" }[$r]
+    if (-not $Brain) { $Brain = "later" }
+    if ($Brain -eq "claude" -and -not $ApiKey) {
+        Write-Host "  Clé à créer sur https://console.anthropic.com (payée à l'usage ; un abonnement Claude Pro/Max ne sert pas ici)."
+        $ApiKey = ReadSecret "Clé API Claude (Entrée = plus tard)"
+    }
+    if ($Brain -eq "openai") {
+        $presets = @("https://api.openai.com/v1", "https://api.mistral.ai/v1", "https://api.groq.com/openai/v1",
+                     "https://openrouter.ai/api/v1", "https://api.deepseek.com/v1",
+                     "https://generativelanguage.googleapis.com/v1beta/openai", "http://localhost:1234/v1")
+        if (-not $BaseUrl) {
+            for ($i = 0; $i -lt $presets.Count; $i++) { Write-Host "    $($i + 1). $($presets[$i])" }
+            $u = Read-Host "  Service [1-$($presets.Count)] ou adresse complète"
+            $BaseUrl = if ($u -match '^\d+$' -and [int]$u -ge 1 -and [int]$u -le $presets.Count) { $presets[[int]$u - 1] } else { $u }
+        }
+        if (-not $ApiKey) { $ApiKey = ReadSecret "Clé API du service (Entrée = aucune)" }
+        if (-not $ApiModel) { $ApiModel = Read-Host "  Nom du modèle (celui donné par le service)" }
+    }
+}
+if ($SkipOllama -and $Brain -eq "ollama") { Warn "-SkipOllama : Ollama ne sera pas installé" }
+$BrainText = @{ "ollama" = "Ollama, $Model (sur cet ordinateur)"; "claude" = "Claude"
+                "openai" = "service compatible OpenAI ($BaseUrl)"; "later" = "à choisir plus tard dans Paramètres > Cerveau" }[$Brain]
 
 Write-Host "Installation de Jarvis" -ForegroundColor White
 Write-Host "  Mémoire vive   : $RamGb Go"
 Write-Host "  Programme      : $AppDir"
 Write-Host "  Configuration  : $DataDir\config.yaml (conservée lors des mises à jour)"
-Write-Host "  Cerveau        : $Model"
+Write-Host "  Cerveau        : $BrainText"
 if (-not (Ask "Continuer ?")) { Write-Host "Installation annulée."; exit 0 }
 
 # ------------------------------------------------------------ 1. uv (fournit Python, sans toucher au système)
@@ -91,8 +139,20 @@ if (Test-Path "$DataDir\config.yaml") {
     $cfg = Get-Content "$AppDir\config.yaml" -Raw -Encoding UTF8
     $cfg = $cfg -replace '(?m)^  model: "[^"]*"', "  model: `"$Model`""
     [IO.File]::WriteAllText("$DataDir\config.yaml", $cfg, (New-Object Text.UTF8Encoding $false))
-    Ok "configuration créée (cerveau : $Model)"
+    Ok "configuration créée"
 }
+if ($Brain -ne "later") {
+    # La clé passe par l'environnement, pas par la ligne de commande (visible dans la liste des processus)
+    $env:JARVIS_BRAIN = $Brain; $env:JARVIS_API_KEY = $ApiKey; $env:JARVIS_BASE_URL = $BaseUrl
+    $env:JARVIS_MODEL = if ($Brain -eq "ollama") { $Model } else { $ApiModel }
+    Push-Location $AppDir
+    $out = & $Py -m jarvis.setup_brain
+    $failed = $LASTEXITCODE
+    Pop-Location
+    Remove-Item Env:JARVIS_BRAIN, Env:JARVIS_API_KEY, Env:JARVIS_BASE_URL, Env:JARVIS_MODEL -ErrorAction SilentlyContinue
+    if ($failed) { Warn "cerveau non enregistré : choisis-le dans Paramètres > Cerveau" } else { Ok $out }
+}
+$ApiKey = ""
 
 # ------------------------------------------------------------ 4. voix et écoute
 if (-not $SkipModels) {
@@ -123,8 +183,8 @@ openwakeword.utils.download_models(model_names=[cfg['voice']['wake_word']])
     Pop-Location
 }
 
-# ------------------------------------------------------------ 5. cerveau (Ollama)
-if (-not $SkipOllama) {
+# ------------------------------------------------------------ 5. cerveau local (Ollama), seulement s'il est choisi
+if ($Brain -eq "ollama" -and -not $SkipOllama) {
     Step "Cerveau (Ollama)"
     $ollama = (Get-Command ollama -ErrorAction SilentlyContinue).Source
     if (-not $ollama) { $ollama = "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe" }
@@ -159,6 +219,7 @@ if (-not $NoShortcuts) {
     }
     $programs = [Environment]::GetFolderPath("Programs")
     Shortcut "$programs\Jarvis.lnk" $PyW "`"$AppDir\main.py`" --voice --background"
+    Shortcut "$programs\Jarvis (discussion).lnk" $PyW "`"$AppDir\main.py`" --background"   # fenêtre + Paramètres
     Shortcut "$programs\Jarvis (mode texte).lnk" $Py "`"$AppDir\main.py`" --cli"
     Ok "menu Démarrer"
     $startup = "$([Environment]::GetFolderPath('Startup'))\Jarvis.lnk"
@@ -173,5 +234,6 @@ Write-Host "    Paramètres > Confidentialité et sécurité > Microphone > « A
 if (-not $Yes -and (Ask "Ouvrir ce réglage maintenant ?")) { Start-Process "ms-settings:privacy-microphone" }
 
 Write-Host "`nJarvis est installé." -ForegroundColor Green
+if ($Brain -eq "later") { Write-Host "  Choisis son cerveau dans la fenêtre Jarvis : Paramètres > Cerveau (Ollama, Claude ou un autre service)." }
 Write-Host "  Lance « Jarvis » depuis le menu Démarrer, puis dis « Hey Jarvis » ou claque deux fois des mains."
 Write-Host "  Messages et erreurs : $DataDir\jarvis.log"

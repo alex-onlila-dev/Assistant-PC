@@ -14,7 +14,7 @@ Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 $programs = [Environment]::GetFolderPath("Programs")
-Remove-Item "$programs\Jarvis.lnk", "$programs\Jarvis (mode texte).lnk",
+Remove-Item "$programs\Jarvis.lnk", "$programs\Jarvis (discussion).lnk", "$programs\Jarvis (mode texte).lnk",
             "$([Environment]::GetFolderPath('Startup'))\Jarvis.lnk" -ErrorAction SilentlyContinue
 Remove-Item $AppDir -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "Jarvis est désinstallé."

@@ -3,13 +3,17 @@
 #  Installation de Jarvis — macOS et Linux
 #
 #  ./installers/install.sh            installation guidée
-#  ./installers/install.sh --yes      sans questions (réponses par défaut)
+#  ./installers/install.sh --yes      sans questions (réponses par défaut ; le cerveau se choisit alors plus tard)
 #
-#  Options : --no-autostart   ne pas lancer Jarvis à l'ouverture de session
-#            --skip-ollama    ne pas installer Ollama ni télécharger le cerveau
+#  Options : --brain X        cerveau : ollama | claude | openai | later (défaut : demandé)
+#            --base-url URL   avec --brain openai : adresse du service (ex. https://api.mistral.ai/v1)
+#            --api-model NOM  avec --brain claude ou openai : nom du modèle
+#                             (la clé API se donne par la variable JARVIS_API_KEY, ou est demandée)
+#            --no-autostart   ne pas lancer Jarvis à l'ouverture de session
+#            --skip-ollama    ne jamais installer Ollama
 #            --skip-models    ne pas précharger Whisper / la voix / le mot d'activation
-#            --model NOM      modèle Ollama à utiliser (défaut : choisi selon la mémoire vive)
-#            --with-vision    télécharger aussi le modèle vision (images, vidéos ; ~6 Go)
+#            --model NOM      modèle Ollama (défaut : choisi selon la mémoire vive ; implique --brain ollama)
+#            --with-vision    avec Ollama : télécharger aussi le modèle vision (images, vidéos ; ~6 Go)
 #
 #  Jarvis s'installe pour ton compte, sans droits administrateur : il a accès à tout ce que
 #  tu peux ouvrir toi-même. Relancer ce script met Jarvis à jour en gardant ta configuration.
@@ -19,20 +23,25 @@ set -euo pipefail
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OS="$(uname -s)"
 YES=0; AUTOSTART=1; SKIP_OLLAMA=0; SKIP_MODELS=0; MODEL=""; VISION=0
+BRAIN=""; BASE_URL=""; API_MODEL=""; API_KEY="${JARVIS_API_KEY:-}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes|-y) YES=1 ;;
+    --brain) BRAIN="$2"; shift ;;
+    --base-url) BASE_URL="$2"; shift ;;
+    --api-model) API_MODEL="$2"; shift ;;
     --no-autostart) AUTOSTART=0 ;;
     --skip-ollama) SKIP_OLLAMA=1 ;;
     --skip-models) SKIP_MODELS=1 ;;
-    --model) MODEL="$2"; shift ;;
+    --model) MODEL="$2"; [ -z "$BRAIN" ] && BRAIN=ollama; shift ;;
     --with-vision) VISION=1 ;;
-    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
     *) echo "Option inconnue : $1"; exit 1 ;;
   esac
   shift
 done
+case "$BRAIN" in ""|ollama|claude|openai|later) ;; *) echo "--brain : ollama, claude, openai ou later"; exit 1 ;; esac
 
 # --- Emplacements (modifiables par variables d'environnement, utile pour tester) ---
 if [ "$OS" = "Darwin" ]; then
@@ -69,13 +78,47 @@ if [ -z "$MODEL" ]; then
   if [ "$RAM_GB" -lt 12 ]; then MODEL="qwen2.5:3b"; else MODEL="qwen2.5:7b"; fi
 fi
 
+# --- Le cerveau : c'est l'utilisateur qui choisit ---
+read_tty() { read -r "$@" </dev/tty || true; }
+if [ -z "$BRAIN" ] && [ "$YES" = 1 ]; then BRAIN=later; fi
+if [ -z "$BRAIN" ]; then
+  if [ "$RAM_GB" -ge 12 ]; then ADVICE=1; else ADVICE=2; fi
+  bold "Quel cerveau pour Jarvis ? (modifiable ensuite dans Paramètres > Cerveau)"
+  echo "  1. Ollama : sur cet ordinateur, sans Internet (télécharge ~5 Go, pour 12 Go de mémoire vive ou plus)"
+  echo "  2. Claude : avec une clé API Anthropic, rien à télécharger"
+  echo "  3. Autre service compatible OpenAI (OpenAI, Mistral, Groq, OpenRouter, Gemini, LM Studio…)"
+  echo "  4. Plus tard"
+  printf '  Choix [1-4] (conseillé ici : %s) ' "$ADVICE"; r=""; read_tty r
+  case "${r:-$ADVICE}" in 1) BRAIN=ollama ;; 2) BRAIN=claude ;; 3) BRAIN=openai ;; *) BRAIN=later ;; esac
+  if [ "$BRAIN" = claude ] && [ -z "$API_KEY" ]; then
+    echo "  Clé à créer sur https://console.anthropic.com (payée à l'usage ; un abonnement Claude Pro/Max ne sert pas ici)."
+    printf '  Clé API Claude (Entrée = plus tard) : '; read_tty -s API_KEY; echo
+  fi
+  if [ "$BRAIN" = openai ]; then
+    PRESETS="https://api.openai.com/v1 https://api.mistral.ai/v1 https://api.groq.com/openai/v1 https://openrouter.ai/api/v1 https://api.deepseek.com/v1 https://generativelanguage.googleapis.com/v1beta/openai http://localhost:1234/v1"
+    if [ -z "$BASE_URL" ]; then
+      i=1; for u in $PRESETS; do echo "    $i. $u"; i=$((i + 1)); done
+      printf '  Service [1-7] ou adresse complète : '; u=""; read_tty u
+      case "$u" in [1-7]) BASE_URL="$(echo "$PRESETS" | tr ' ' '\n' | sed -n "${u}p")" ;; *) BASE_URL="$u" ;; esac
+    fi
+    if [ -z "$API_KEY" ]; then printf '  Clé API du service (Entrée = aucune) : '; read_tty -s API_KEY; echo; fi
+    if [ -z "$API_MODEL" ]; then printf '  Nom du modèle (celui donné par le service) : '; read_tty API_MODEL; fi
+  fi
+fi
+case "$BRAIN" in
+  ollama) BRAIN_TEXT="Ollama, $MODEL (sur cet ordinateur)$([ "$SKIP_OLLAMA" = 1 ] && echo ' — non installé : --skip-ollama')" ;;
+  claude) BRAIN_TEXT="Claude" ;;
+  openai) BRAIN_TEXT="service compatible OpenAI ($BASE_URL)" ;;
+  *)      BRAIN_TEXT="à choisir plus tard dans Paramètres > Cerveau" ;;
+esac
+
 bold "Installation de Jarvis"
 echo "  Système        : $OS ($(uname -m)), ${RAM_GB} Go de mémoire vive"
 echo "  Programme      : $APP_DIR"
 echo "  Commande       : $BIN_DIR/jarvis"
 [ "$OS" = "Darwin" ] && echo "  Application    : $MAC_APP"
 echo "  Configuration  : $DATA_DIR/config.yaml (conservée lors des mises à jour)"
-echo "  Cerveau        : $MODEL$([ "$SKIP_OLLAMA" = 1 ] && echo ' (non installé : --skip-ollama)')"
+echo "  Cerveau        : $BRAIN_TEXT"
 echo "  Démarrage auto : $([ "$AUTOSTART" = 1 ] && echo oui || echo non)"
 ask "Continuer ?" || { echo "Installation annulée."; exit 0; }
 
@@ -150,8 +193,19 @@ if [ -f "$DATA_DIR/config.yaml" ]; then
   ok "configuration existante conservée ($DATA_DIR/config.yaml)"
 else
   sed -e "s|^  model: \"[^\"]*\"|  model: \"$MODEL\"|" "$APP_DIR/config.yaml" > "$DATA_DIR/config.yaml"
-  ok "configuration créée ($DATA_DIR/config.yaml, cerveau : $MODEL)"
+  ok "configuration créée ($DATA_DIR/config.yaml)"
 fi
+if [ "$BRAIN" != later ]; then
+  # La clé passe par l'environnement, pas par la ligne de commande (visible dans la liste des processus)
+  if [ "$BRAIN" = ollama ]; then CHOSEN_MODEL="$MODEL"; else CHOSEN_MODEL="$API_MODEL"; fi
+  if OUT="$(cd "$APP_DIR" && JARVIS_BRAIN="$BRAIN" JARVIS_API_KEY="$API_KEY" JARVIS_BASE_URL="$BASE_URL" \
+            JARVIS_MODEL="$CHOSEN_MODEL" "$PY" -m jarvis.setup_brain)"; then
+    ok "$OUT"
+  else
+    warn "cerveau non enregistré : choisis-le dans Paramètres > Cerveau"
+  fi
+fi
+API_KEY=""
 
 # ------------------------------------------------------------ 5. voix et écoute
 if [ "$SKIP_MODELS" = 0 ]; then
@@ -178,8 +232,8 @@ openwakeword.utils.download_models(model_names=[cfg["voice"]["wake_word"]])'
   fi
 fi
 
-# ------------------------------------------------------------ 6. le cerveau (Ollama)
-if [ "$SKIP_OLLAMA" = 0 ]; then
+# ------------------------------------------------------------ 6. le cerveau local (Ollama), seulement s'il est choisi
+if [ "$BRAIN" = ollama ] && [ "$SKIP_OLLAMA" = 0 ]; then
   step "Cerveau (Ollama)"
   if ! have ollama; then
     if [ "$OS" = "Darwin" ]; then
@@ -317,4 +371,5 @@ else
   echo "   Lance-le : « Jarvis » dans le menu des applications, ou tape « jarvis » dans un terminal."
 fi
 echo "   Puis dis « Hey Jarvis » ou claque deux fois des mains."
+if [ "$BRAIN" = later ]; then echo "   Choisis d'abord son cerveau dans la fenêtre Jarvis : Paramètres > Cerveau."; fi
 echo "   Messages et erreurs : $DATA_DIR/jarvis.log — Désinstaller : $APP_DIR/installers/uninstall.sh"

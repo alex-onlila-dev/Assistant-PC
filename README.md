@@ -1,6 +1,8 @@
 # Jarvis — assistant personnel local
 
-Assistant personnel qui tourne **entièrement sur ton ordinateur**, sans API externe.
+Assistant personnel qui tourne sur ton ordinateur. Son cerveau est au choix : un modèle **local** (Ollama, rien ne
+quitte la machine) ou un service **en ligne** — Claude, ou tout service compatible OpenAI — quand le PC est trop
+modeste pour Ollama ou qu'on ne veut rien installer.
 Il lit, analyse et gère tes fichiers, ouvre tes applications et tes paramètres, règle des alarmes,
 et donne un avis impartial sur tes projets. Il fonctionne à la voix, en texte ou en fenêtre.
 
@@ -20,9 +22,9 @@ Voix / Texte / Fenêtre          (interfaces)
    Boucle agent                 penser → agir → observer → recommencer
         │
  ┌──────┼───────────────┬──────────────┐
-Cerveau local     Outils          Confirmation
-(Ollama)     fichiers, analyse,   (oui / non)
-             apps, alarmes…
+  Cerveau         Outils          Confirmation
+(Ollama, Claude  fichiers, analyse,  (oui / non)
+ ou autre)       apps, alarmes…
                    │
           Adaptateur OS  →  Windows | macOS | Linux
 ```
@@ -38,7 +40,10 @@ jarvis-assistant/
 │   ├── autostart.py         lancement automatique à l'ouverture de session
 │   ├── core/                le cerveau (identique sur tous les OS)
 │   │   ├── agent.py         boucle agent + blocage des actions non confirmées
-│   │   ├── llm.py           client Ollama (local)
+│   │   ├── llm/             le cerveau, interchangeable
+│   │   │   ├── ollama.py         modèle local
+│   │   │   ├── claude.py         Claude (API Anthropic)
+│   │   │   └── openai_compat.py  OpenAI, Mistral, Groq, OpenRouter, Gemini, LM Studio…
 │   │   ├── tools.py         registre des outils (confirm=True/False)
 │   │   ├── confirmation.py  confirmation texte, compréhension de « oui / non »
 │   │   ├── prompts.py       consignes données au cerveau (dont l'impartialité)
@@ -78,7 +83,7 @@ jarvis-assistant/
 | Brique | Choix |
 |---|---|
 | Langage | Python 3.11 (3.12 possible sur macOS et Windows) |
-| Cerveau | Modèle local via Ollama (`qwen2.5:7b`), vision : `qwen2.5vl:7b` |
+| Cerveau | Local via Ollama (`qwen2.5:7b`, vision `qwen2.5vl:7b`), ou Claude (`claude-opus-5-5`), ou un service compatible OpenAI |
 | Écoute | faster-whisper |
 | Mot d'activation | openWakeWord (« Hey Jarvis ») |
 | Parole | Piper (repli : pyttsx3) |
@@ -99,8 +104,10 @@ jarvis-assistant/
 | **Linux** | Dans le dossier du projet : `./installers/install.sh` (demande ton mot de passe pour portaudio, ffmpeg…) |
 
 L'installateur fait tout :
-- il installe Python 3.11 (via `uv`, sans toucher au Python du système), les modules, puis Ollama ;
-- il choisit le cerveau selon ta mémoire vive (`qwen2.5:3b` sous 12 Go, sinon `qwen2.5:7b`) ;
+- il te demande quel cerveau utiliser : **Ollama** (local), **Claude** (clé API), **un autre service** compatible OpenAI,
+  ou **plus tard** (dans Paramètres > Cerveau). Ollama n'est téléchargé que si tu le choisis, avec un modèle adapté
+  à ta mémoire vive (`qwen2.5:3b` sous 12 Go, sinon `qwen2.5:7b`) ;
+- il installe Python 3.11 (via `uv`, sans toucher au Python du système) et les modules ;
 - il précharge Whisper, la voix française et « Hey Jarvis » ;
 - il crée l'application (`Jarvis.app` sur Mac, menu Démarrer sur Windows, menu des applications sur Linux),
   la commande `jarvis` et le lancement automatique à l'ouverture de session.
@@ -119,7 +126,10 @@ une erreur du modèle pourrait alors casser la machine. Ce qui débloque vraimen
 
 Relancer l'installateur met Jarvis à jour en gardant ta configuration (`~/.jarvis/config.yaml`).
 Tous les réglages se changent aussi dans la fenêtre : **⚙ Paramètres** en bas de la barre latérale (ou Ctrl+,).
-Options : `--no-autostart`, `--model qwen2.5:7b`, `--with-vision`, `--yes` (Windows : `-NoAutostart`, `-Model`, `-WithVision`, `-Yes`).
+Options : `--brain ollama|claude|openai|later`, `--base-url URL`, `--api-model NOM`, `--no-autostart`,
+`--model qwen2.5:7b`, `--with-vision`, `--yes` (Windows : `-Brain`, `-BaseUrl`, `-ApiModel`, `-KeyFile`, `-NoAutostart`,
+`-Model`, `-WithVision`, `-Yes`). Sans question (`--yes`), le cerveau se choisit plus tard dans les Paramètres.
+La clé API se donne par la variable `JARVIS_API_KEY` (ou `-KeyFile` sous Windows), jamais sur la ligne de commande.
 Désinstaller : `installers/uninstall.sh` (Windows : *Paramètres > Applications > Jarvis*).
 
 **Publier une version Windows** : `git tag v1.0.0 && git push --tags`. GitHub Actions teste l'installation sur Linux
@@ -155,6 +165,21 @@ depuis le dépôt de voix Piper, place-les dans `models/`, puis dans `config.yam
 voice:
   piper_model: "models/fr_FR-siwis-medium.onnx"
 ```
+
+### Choisir le cerveau
+
+Dans **⚙ Paramètres > Cerveau** (bouton « Tester le cerveau » pour vérifier avant d'enregistrer), ou `llm.provider` dans `config.yaml` :
+
+| Choix | Ce qu'il faut | À savoir |
+|---|---|---|
+| `auto` (défaut) | — | Ollama s'il est installé, sinon Claude ou l'autre service si leur clé est renseignée |
+| `ollama` | Ollama et un modèle (plusieurs Go) | Rien ne quitte l'ordinateur ; lent sur une petite machine |
+| `claude` | Une clé API créée sur [console.anthropic.com](https://console.anthropic.com) | Payée à l'usage. Un abonnement Claude Pro/Max ne sert pas ici : il ne fonctionne que dans les applications Claude |
+| `openai` | L'adresse du service, sa clé et le nom du modèle | OpenAI, Mistral, Groq, OpenRouter, DeepSeek, Gemini, ou LM Studio en local |
+
+Avec un service en ligne, tes demandes **et le contenu des fichiers que Jarvis lit** sont envoyés à ce service.
+La règle de confirmation ne change pas : c'est Jarvis qui l'applique, quel que soit le cerveau.
+Les clés sont enregistrées dans `~/.jarvis/config.yaml` ; pour Claude, la variable `ANTHROPIC_API_KEY` marche aussi.
 
 ## 4. Lancement
 

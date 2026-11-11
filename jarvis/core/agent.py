@@ -2,10 +2,11 @@
 import json
 import re
 import threading
+import uuid
 from typing import Callable
 
 from jarvis.core.confirmation import Confirmer
-from jarvis.core.llm import LLMError, OllamaClient
+from jarvis.core.llm import LLMClient, LLMError
 from jarvis.core.prompts import build_system_prompt
 from jarvis.core.tools import ToolRegistry
 
@@ -22,7 +23,7 @@ class Cancelled(Exception):
 
 
 class Agent:
-    def __init__(self, llm: OllamaClient, registry: ToolRegistry, confirmer: Confirmer,
+    def __init__(self, llm: LLMClient, registry: ToolRegistry, confirmer: Confirmer,
                  cfg: dict, memory=None, on_event: EventCallback | None = None, voice: bool = False):
         self.llm = llm
         self.voice = voice
@@ -52,14 +53,9 @@ class Agent:
         self._cancel.set()
 
     def warm_up(self) -> None:
-        """Fait lire au cerveau ses consignes et ses outils dès le démarrage.
-
-        Ollama garde en cache le début de conversation déjà lu : la première vraie question n'a plus
-        à relire ces milliers de mots (sinon plusieurs dizaines de secondes sur une petite machine).
-        """
+        """Prépare le cerveau dès le démarrage (Ollama lit ses consignes et ses outils une fois pour toutes)."""
         try:
-            self.llm.chat(self.history + [{"role": "user", "content": "Bonjour"}],
-                          tools=self.registry.schemas(), options={"num_predict": 1})
+            self.llm.prime(self.history, self.registry.schemas())
         except LLMError:
             pass
 
@@ -91,15 +87,16 @@ class Agent:
             except Cancelled:
                 return self._stopped("".join(partial))
             except LLMError as e:
-                return f"Problème avec le cerveau local : {e}"
+                return f"Problème avec le cerveau : {e}"
 
-            calls = msg.get("tool_calls") or []
+            calls = [{**c, "id": c.get("id") or f"call_{uuid.uuid4().hex[:12]}"} for c in msg.get("tool_calls") or []]
             self.history.append({"role": "assistant", "content": msg.get("content", ""),
-                                 **({"tool_calls": calls} if calls else {})})
+                                 **({"tool_calls": calls} if calls else {}),
+                                 **({"native": msg["native"]} if msg.get("native") else {})})
 
             if not calls:
                 answer = msg.get("content", "").strip()
-                if not nudged and self._unsent_call(answer):
+                if not nudged and getattr(self.llm, "nudge", True) and self._unsent_call(answer):
                     nudged = True
                     self.history.append({"role": "system", "content": NUDGE})
                     self.on_event("retry", {})
@@ -117,7 +114,7 @@ class Agent:
                     except json.JSONDecodeError:
                         args = {}
                 result = self._execute(name, args)
-                self.history.append({"role": "tool", "tool_name": name, "content": result})
+                self.history.append({"role": "tool", "tool_name": name, "tool_call_id": call["id"], "content": result})
 
         return "J'ai atteint la limite d'étapes sans terminer. Reformule ou découpe la demande."
 

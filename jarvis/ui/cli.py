@@ -22,14 +22,15 @@ def run_cli(cfg: dict) -> int:
     agent.on_event = _event
 
     if not ctx.llm.ensure_running():
-        print("⚠️  Ollama ne répond pas. Lance « ollama serve » dans un autre terminal.")
+        print(f"⚠️  {ctx.llm.setup_hint}")
         return 1
-    models = ctx.llm.installed_models()
-    wanted = ctx.llm.model if ":" in ctx.llm.model else f"{ctx.llm.model}:latest"
-    if wanted not in models:   # « qwen2.5:7b » installé ne veut pas dire « qwen2.5:3b » installé
-        print(f"⚠️  Modèle {ctx.llm.model} absent. Installe-le : ollama pull {ctx.llm.model}")
+    if ctx.llm.provider == "ollama":
+        models = ctx.llm.installed_models()
+        wanted = ctx.llm.model if ":" in ctx.llm.model else f"{ctx.llm.model}:latest"
+        if wanted not in models:   # « qwen2.5:7b » installé ne veut pas dire « qwen2.5:3b » installé
+            print(f"⚠️  Modèle {ctx.llm.model} absent. Installe-le : ollama pull {ctx.llm.model}")
 
-    print(f"Jarvis prêt ({ctx.os.name}, cerveau : {ctx.llm.model}). /aide pour l'aide.\n")
+    print(f"Jarvis prêt ({ctx.os.name}, cerveau : {ctx.llm.label} · {ctx.llm.model}). /aide pour l'aide.\n")
     try:
         while True:
             text = input("Toi > ").strip()
